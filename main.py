@@ -47,15 +47,20 @@ class EditorApplication:
         self.components = []
         self.fps = 30
 
-        self.editor = Editor("editor.py", PySyntaxHighlighter)
+        self.editor = Editor(self, "editor.py", PySyntaxHighlighter)
         self.add_component(self.editor)
 
         import main, component, editor, font, syntax_highlighter
         self.hotreload = HotreloadWatchdog(main, component, editor, font, syntax_highlighter)
 
+    def get_width(self):
+        return self.window.get_width()
+
+    def get_height(self):
+        return self.window.get_height()
+    
     def add_component(self, component):
         self.components.append(component)
-        component.application = self
 
     def update_frame(self):
         self.window.fill((0, 0, 0))

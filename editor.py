@@ -16,9 +16,83 @@ class EditorMode(Enum):
     COMMAND_INSERT: str = 'command_insert'
 
 
+class EditorStatusbar(Component):
+    def __init__(self, app, editor):
+        super().__init__(
+            app,
+            (app.get_width(), FONT_SIZE[1] * editor.text_size),
+            0, app.get_height() - FONT_SIZE[1] * editor.text_size
+        )
+
+        self.editor = editor
+        self.status_bar_text = ""
+        self.status_bar_text_color = (255, 255, 255)
+        self.status_bar_text_background = (0, 0, 0)
+        self.status_bar_text_timeout = 0
+
+    def propagate_event(self, event):
+        if event.type == pygame.VIDEORESIZE:
+            self.surface = pygame.Surface((self.application.get_width(), FONT_SIZE[1] * self.editor.text_size))
+            self.y = self.application.get_height() - FONT_SIZE[1] * self.editor.text_size
+    
+    def display_statusbar_text(self, text, color=(255, 255, 255), background=(0, 0, 0)):
+        self.status_bar_text = text
+        self.status_bar_text_timeout = 2
+        self.status_bar_text_color = color
+        self.status_bar_text_background = background
+
+    def update(self, dt):
+        self.status_bar_text_timeout -= dt
+        if self.status_bar_text_timeout <= 0:
+            self.status_bar_text_timeout = 0
+            self.status_bar_text = ""
+        
+        return super().update(dt)
+    
+    def draw_frame(self):
+        status_bar_background_color = (0, 0, 0)
+        status_bar_color = (255, 255, 255)
+        status_bar_text = f"Mode: {self.editor.mode.value}"
+        if self.editor.mode == EditorMode.INSERT:
+            status_bar_background_color = (100, 100, 190)
+        
+        if self.editor.mode == EditorMode.COMMAND_INSERT:
+            status_bar_text = f":{self.editor.command_insert_value}"
+        elif self.status_bar_text_timeout > 0:
+            status_bar_text = self.status_bar_text
+            status_bar_color = self.status_bar_text_color
+            status_bar_background_color = self.status_bar_text_background
+
+        draw_text(
+            self.surface,
+            status_bar_text,
+            status_bar_color,
+            status_bar_background_color,
+            0, 0,
+            (self.editor.text_size, self.editor.text_size)
+        )
+
+        return super().draw_frame()
+
+
+class CommandExecutor:
+    def __init__(self, editor):
+        self.editor = editor
+        self.status_bar = self.editor.status_bar
+    
+    def execute(self, command):
+        # If the command is just a number, go to that line number
+        if command.isdigit():
+            self.editor.set_caret_line(int(command))
+        else:
+            self.status_bar.display_statusbar_text(f"Invalid command!", background=(255, 0, 0))
+
+        # print("Execute", self.command_insert_value)
+
+
 class Editor(Component):
-    def __init__(self, filename, syntax_highlighter):
-        super().__init__((800, 600))
+    def __init__(self, app, filename, syntax_highlighter):
+        super().__init__(app, (app.get_width(), app.get_height() - FONT_SIZE[1]))
 
         self.file_name = filename
         self.base_lines_of_text = []
@@ -34,9 +108,6 @@ class Editor(Component):
         # Amount of frames that needs to be forcefully drawn by the editor without caching
         self.forcefully_update_editor = 4
 
-        self.status_bar_text = ""
-        self.status_bar_text_timeout = 0
-
         self.caret_position = [0, 0]
         self.caret_blink_animation = 0
         self.caret_animation_speed = 6
@@ -48,8 +119,13 @@ class Editor(Component):
         self.previous_y_line_offset = 0
         self.last_x_caret_position = 0
 
-        self.command_insert_value = ""
         self.mode = EditorMode.COMMAND
+
+        self.status_bar = EditorStatusbar(app, self)
+        self.command_executor = CommandExecutor(self)
+        self.add_child_component(self.status_bar)
+
+        self.command_insert_value = ""
 
         self.load_file()
 
@@ -83,20 +159,12 @@ class Editor(Component):
     def reload(self):
         self.forcefully_update_editor = 4
         self.token_lines = self.syntax_highlighter.parse_code(self.base_lines_of_text)
-
-    def display_statusbar_text(self, text):
-        self.status_bar_text = text
-        self.status_bar_text_timeout = 2
+        
+        return super().reload()
 
     def update(self, dt):
         self.caret_blink_animation += dt * self.caret_animation_speed
         self.editor_type_delay -= dt
-        self.status_bar_text_timeout -= dt
-
-        if self.status_bar_text_timeout <= 0:
-            self.status_bar_text_timeout = 0
-            self.status_bar_text = ""
-
         if self.caret_blink_animation > 2:
             self.caret_blink_animation_flag = not self.caret_blink_animation_flag
             self.caret_blink_animation = 0
@@ -104,6 +172,8 @@ class Editor(Component):
         if self.editor_type_delay <= 0:
             self.update_editor(*self.editor_current_pressed_key)
             self.editor_type_delay = 0.02
+        
+        return super().update(dt)
 
     def update_editor(self, key, unicode, key_modifier):
         if not key:
@@ -126,6 +196,12 @@ class Editor(Component):
         # Change to the command insert mode if colon is pressed and in command mode
         elif self.mode == EditorMode.COMMAND and unicode == ':':
             self.mode = EditorMode.COMMAND_INSERT
+            self.command_insert_value = ""
+            return
+        # Execute command if in inset command mode and pressed return
+        elif self.mode == EditorMode.COMMAND_INSERT and key == pygame.K_RETURN:
+            self.mode = EditorMode.COMMAND
+            self.command_executor.execute(self.command_insert_value)
             self.command_insert_value = ""
             return
         # Change to the insert mode if 'i' letter or 'insert' key is pressed and in command mode
@@ -156,7 +232,7 @@ class Editor(Component):
             # Save the file if the 's' letter is pressed and in command mode OR if a modifier is pressed
             if self.mode == EditorMode.COMMAND or (key_modifier & pygame.KMOD_CTRL or key_modifier & pygame.KMOD_LMETA):
                 self.save_file()
-                self.display_statusbar_text(f"Saved file as {self.file_name}")
+                self.status_bar.display_statusbar_text(f"Saved file as {self.file_name}")
                 skip_letter_insert = True
         if key == pygame.K_v:
             # Paste from clipboard if the 'v' letter is pressed and in command mode OR if a modifier is pressed
@@ -165,7 +241,7 @@ class Editor(Component):
                 skip_letter_insert = True
                 text = pyperclip.paste()
                 self.insert_at_current_caret(text)
-                self.display_statusbar_text("Pasted text")
+                self.status_bar.display_statusbar_text("Pasted text")
                 print(f"Pasted text: {text}")
         
         # Key combinations for increasing/decreasing scale of the text
@@ -259,6 +335,12 @@ class Editor(Component):
             self.caret_position[0] += 1
         return line_text
     
+    def set_caret_line(self, line):
+        line -= 1
+        if 0 <= line < len(self.base_lines_of_text):
+            self.caret_position[1] = line
+            self.caret_position[0] = len(self.base_lines_of_text[self.caret_position[1]])
+
     def propagate_event(self, event):
         if event.type == pygame.KEYDOWN:
             self.editor_current_pressed_key = [event.key, event.unicode, event.mod]
@@ -267,14 +349,14 @@ class Editor(Component):
         if event.type == pygame.KEYUP:
             self.editor_current_pressed_key = [None, None, None]
         if event.type == pygame.VIDEORESIZE:
-            self.surface = pygame.Surface((event.w, event.h))
-            self.cache_lines_surface = pygame.Surface((event.w, event.h))
+            self.surface = pygame.Surface((event.w, event.h - FONT_SIZE[1] * self.text_size))
+            self.cache_lines_surface = pygame.Surface((event.w, event.h - FONT_SIZE[1] * self.text_size))
 
         return super().propagate_event(event)
 
     def draw_frame(self):
         # Calculate amount of lines that can fit the height of the editor surface
-        amount_of_lines_surf_height = int(self.surface.get_height() / (FONT_SIZE[1] * self.text_size)) - 2
+        amount_of_lines_surf_height = int(self.surface.get_height() / (FONT_SIZE[1] * self.text_size)) - 1
 
         # Calculate the offset of lines that should be displayed on the screen based on current caret Y
         y_line_offset = self.caret_position[1] - amount_of_lines_surf_height
@@ -310,19 +392,23 @@ class Editor(Component):
                 x_offset = 0
                 y_offset = line_number * FONT_SIZE[1] * self.text_size
                 line_number += self.current_y_line_offset
+                line_indicator_color = (170, 170, 170)
+
+                if line_number == self.caret_position[1]:
+                    line_indicator_color = (255, 255, 255)
 
                 # Draw the line indicator
                 line_indicator_width, _ = draw_text(
                     self.cache_lines_surface,
                     f"{line_number + 1}",
-                    (255, 255, 255),
+                    line_indicator_color,
                     (0, 0, 0),
                     0, y_offset,
                     pixel_size=(self.text_size, self.text_size)
                 )
                 pygame.draw.rect(
                     self.cache_lines_surface,
-                    (255, 255, 255),
+                    line_indicator_color,
                     ((self.lines_indicator_x_offset - 4) * self.text_size, y_offset,
                     int(1.5 * self.text_size), FONT_SIZE[1] * self.text_size)
                 )
@@ -366,27 +452,6 @@ class Editor(Component):
                  self.caret_position[1] * FONT_SIZE[1] * self.text_size + FONT_SIZE[1] * self.text_size - self.caret_height * self.text_size - self.current_y_line_offset * FONT_SIZE[1] * self.text_size,
                 self.caret_width * self.text_size, self.caret_height * self.text_size)
             )
-
-        # Display current mode at the vert bottom of the editor
-        status_bar_background_color = (0, 0, 0)
-        status_bar_color = (255, 255, 255)
-        status_bar_text = f"Mode: {self.mode.value}"
-        if self.mode == EditorMode.INSERT:
-            status_bar_background_color = (100, 100, 190)
-        
-        if self.mode == EditorMode.COMMAND_INSERT:
-            status_bar_text = f":{self.command_insert_value}"
-        elif self.status_bar_text_timeout > 0:
-            status_bar_text += f" | {self.status_bar_text}"
-    
-        draw_text(
-            self.surface,
-            status_bar_text,
-            status_bar_color,
-            status_bar_background_color,
-            0, self.surface.get_height() - FONT_SIZE[1] * self.text_size,
-            (self.text_size, self.text_size)
-        )
 
         return super().draw_frame()
 
