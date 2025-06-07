@@ -3,7 +3,7 @@
 
 BASE_COLOR = (255, 255, 255)
 STRING_LITERAL_COLOR = (190, 140, 100)
-KEYWORD0_LITERAL_COLOR = (100, 100, 150)
+KEYWORD0_LITERAL_COLOR = (110, 110, 150)
 KEYWORD1_LITERAL_COLOR = (190, 190, 100)
 NUMBER_LITERAL_COLOR = (100, 190, 150)
 COMMENT_COLOR = (130, 190, 100)
@@ -117,7 +117,10 @@ class Token:
 
 class CSyntaxHighlighter(SyntaxHighlighter):
     KEYWORDS = ['int', 'char', 'const', 'void', 'short', 'struct', 'return', 'if', 'else', 'while', 'for',
-                'do', 'goto', 'double', 'float', 'long']
+                'do', 'goto', 'double', 'float', 'long', 'break', 'continue', 'switch', 'case', 'size_t',
+                'uint8_t', 'uint16_t', 'uint32_t', 'uint64_t', 'int8_t', 'int16_t', 'int32_t', 'int64_t',
+                'size_t', 'unsigned', 'NULL', 'extern', 'true', 'false']
+    RESERVED_NAMES_KEYWORDS = []
 
 
     def parse_code(self, lines_of_code):
@@ -144,19 +147,24 @@ class CSyntaxHighlighter(SyntaxHighlighter):
         tokens = None
         char, is_end, is_new_line = self.next_char(step_further=False)
 
-        if char in ['"', "'", '<']:
+        if char in ['"', "'"]:#, '<']:
             tokens, is_end = self.parse_literal(lambda x: x == ('>' if char == '<' else char), STRING_LITERAL_COLOR)
-        elif char.isalpha():
+        elif char.isalpha() or char == '#':
+            checker = lambda x: not (x.isalpha() or x.isdigit() or x == '_')
+            if char == '#':
+                checker = lambda x: not (x.isalpha() or x.isdigit() or x == '_' or x == '#')
             tokens, is_end = self.parse_literal(
-                lambda x: not (x.isalpha() or x.isdigit() or x == '_'),
-                KEYWORD0_LITERAL_COLOR,
+                checker,
+                BASE_COLOR,
                 skip_last_character=True
             )
 
             # Highlight different keywords with different color
             for token in tokens:
-                if token.value not in CSyntaxHighlighter.KEYWORDS:
-                    token.color = BASE_COLOR
+                if token.value in CSyntaxHighlighter.KEYWORDS:
+                    token.color = KEYWORD0_LITERAL_COLOR
+                elif token.value in CSyntaxHighlighter.RESERVED_NAMES_KEYWORDS or token.value.startswith("#"):
+                    token.color = KEYWORD1_LITERAL_COLOR
         elif char.isdigit():
             tokens, is_end = self.parse_literal(lambda x: not x.isdigit(), NUMBER_LITERAL_COLOR, skip_last_character=True)
         elif char == '/':
@@ -179,7 +187,8 @@ class CSyntaxHighlighter(SyntaxHighlighter):
         return tokens, is_end
 
 class PySyntaxHighlighter(SyntaxHighlighter):
-    KEYWORDS = ['if', 'elif', 'else', 'for', 'while', 'import', 'from', 'class', 'def', 'self']
+    KEYWORDS = ['if', 'elif', 'else', 'for', 'while', 'import', 'from', 'class', 'def', 'self', 'or', 'and', 'not',
+                'in', 'lambda', 'match', 'case', 'break', 'continue', 'return', 'True', 'False', 'None']
     RESERVED_NAMES_KEYWORDS = ['print', '__init__', 'str', 'int', 'float', 'bool', 'input']
 
     def parse_code(self, lines_of_code):
@@ -208,9 +217,12 @@ class PySyntaxHighlighter(SyntaxHighlighter):
 
         if char in ['"', "'"]:
             tokens, is_end = self.parse_literal(lambda x: x == ('>' if char == '<' else char), STRING_LITERAL_COLOR)
-        elif char.isalpha():
+        elif char.isalpha() or char == '@':
+            checker = lambda x: not (x.isalpha() or x.isdigit() or x == '_')
+            if char == '@':
+                checker = lambda x: not (x.isalpha() or x.isdigit() or x == '_' or x == '@')
             tokens, is_end = self.parse_literal(
-                lambda x: not (x.isalpha() or x.isdigit() or x == '_'),
+                checker,
                 BASE_COLOR,
                 skip_last_character=True
             )
@@ -219,7 +231,7 @@ class PySyntaxHighlighter(SyntaxHighlighter):
             for token in tokens:
                 if token.value in PySyntaxHighlighter.KEYWORDS:
                     token.color = KEYWORD0_LITERAL_COLOR
-                elif token.value in PySyntaxHighlighter.RESERVED_NAMES_KEYWORDS:
+                elif token.value in PySyntaxHighlighter.RESERVED_NAMES_KEYWORDS or token.value.startswith("@"):
                     token.color = KEYWORD1_LITERAL_COLOR
         elif char.isdigit():
             tokens, is_end = self.parse_literal(lambda x: not x.isdigit(), NUMBER_LITERAL_COLOR, skip_last_character=True)

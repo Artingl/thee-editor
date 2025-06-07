@@ -1,8 +1,19 @@
 import pygame
 import string
+import pyperclip
 
+from enum import Enum
 from component import *
 from font import draw_text, FONT_SIZE
+
+# Call the method once, so the module initializes
+pyperclip.paste()
+
+
+class EditorMode(Enum):
+    INSERT: str = 'insert'
+    COMMAND: str = 'command'
+    COMMAND_INSERT: str = 'command_insert'
 
 
 class Editor(Component):
@@ -23,6 +34,9 @@ class Editor(Component):
         # Amount of frames that needs to be forcefully drawn by the editor without caching
         self.forcefully_update_editor = 4
 
+        self.status_bar_text = ""
+        self.status_bar_text_timeout = 0
+
         self.caret_position = [0, 0]
         self.caret_blink_animation = 0
         self.caret_animation_speed = 6
@@ -33,6 +47,9 @@ class Editor(Component):
         self.current_y_line_offset = 0
         self.previous_y_line_offset = 0
         self.last_x_caret_position = 0
+
+        self.command_insert_value = ""
+        self.mode = EditorMode.COMMAND
 
         self.load_file()
 
@@ -67,9 +84,19 @@ class Editor(Component):
         self.forcefully_update_editor = 4
         self.token_lines = self.syntax_highlighter.parse_code(self.base_lines_of_text)
 
+    def display_statusbar_text(self, text):
+        self.status_bar_text = text
+        self.status_bar_text_timeout = 2
+
     def update(self, dt):
         self.caret_blink_animation += dt * self.caret_animation_speed
         self.editor_type_delay -= dt
+        self.status_bar_text_timeout -= dt
+
+        if self.status_bar_text_timeout <= 0:
+            self.status_bar_text_timeout = 0
+            self.status_bar_text = ""
+
         if self.caret_blink_animation > 2:
             self.caret_blink_animation_flag = not self.caret_blink_animation_flag
             self.caret_blink_animation = 0
@@ -78,44 +105,82 @@ class Editor(Component):
             self.update_editor(*self.editor_current_pressed_key)
             self.editor_type_delay = 0.02
 
-    def update_editor(self, key, key_unicode, key_modifier):
+    def update_editor(self, key, unicode, key_modifier):
         if not key:
             return
 
         is_text_updated = False
+        skip_letter_insert = False
         line_text = self.base_lines_of_text[self.caret_position[1]]
         self.caret_blink_animation = 0
         self.caret_blink_animation_flag = True
 
         if key == pygame.K_TAB:
-            key_unicode = "    "
+            unicode = "    "
+        
+        # Return to the command mode if escape is pressed
+        if key == pygame.K_ESCAPE:
+            self.mode = EditorMode.COMMAND
+            self.command_insert_value = ""
+            return
+        # Change to the command insert mode if colon is pressed and in command mode
+        elif self.mode == EditorMode.COMMAND and unicode == ':':
+            self.mode = EditorMode.COMMAND_INSERT
+            self.command_insert_value = ""
+            return
+        # Change to the insert mode if 'i' letter or 'insert' key is pressed and in command mode
+        elif self.mode == EditorMode.COMMAND and (key == pygame.K_i or key == pygame.K_INSERT):
+            self.mode = EditorMode.INSERT
+            # Skip this key press, so we won't accidentally type it into the editor
+            return
 
+        if key == pygame.K_LEFT:
+            self.caret_position[0] -= 1
+            self.caret_position[0] = max(min(self.caret_position[0], len(self.base_lines_of_text[self.caret_position[1]])), 0)
+            self.last_x_caret_position = self.caret_position[0]
+        elif key == pygame.K_RIGHT:
+            self.caret_position[0] += 1
+            self.caret_position[0] = max(min(self.caret_position[0], len(self.base_lines_of_text[self.caret_position[1]])), 0)
+            self.last_x_caret_position = self.caret_position[0]
+        elif key == pygame.K_UP:
+            self.caret_position[1] -= 1
+            self.caret_position[1] = max(min(self.caret_position[1], len(self.base_lines_of_text) - 1), 0)
+            self.caret_position[0] = min(self.last_x_caret_position, len(self.base_lines_of_text[self.caret_position[1]]))
+        elif key == pygame.K_DOWN:
+            self.caret_position[1] += 1
+            self.caret_position[1] = max(min(self.caret_position[1], len(self.base_lines_of_text) - 1), 0)
+            self.caret_position[0] = min(self.last_x_caret_position, len(self.base_lines_of_text[self.caret_position[1]]))
+        
         # Check if a key combination was pressed
-        if key == pygame.K_s and key_modifier & pygame.KMOD_CTRL:
-            self.save_file()
-        elif key == pygame.K_EQUALS and key_modifier & pygame.KMOD_CTRL:
-            self.text_size += 1
-        elif key == pygame.K_MINUS and key_modifier & pygame.KMOD_CTRL:
+        if key == pygame.K_s:
+            # Save the file if the 's' letter is pressed and in command mode OR if a modifier is pressed
+            if self.mode == EditorMode.COMMAND or (key_modifier & pygame.KMOD_CTRL or key_modifier & pygame.KMOD_LMETA):
+                self.save_file()
+                self.display_statusbar_text(f"Saved file as {self.file_name}")
+                skip_letter_insert = True
+        if key == pygame.K_v:
+            # Paste from clipboard if the 'v' letter is pressed and in command mode OR if a modifier is pressed
+            if self.mode == EditorMode.COMMAND or  (key_modifier & pygame.KMOD_CTRL or key_modifier & pygame.KMOD_LMETA):
+                is_text_updated = True
+                skip_letter_insert = True
+                text = pyperclip.paste()
+                self.insert_at_current_caret(text)
+                self.display_statusbar_text("Pasted text")
+                print(f"Pasted text: {text}")
+        
+        # Key combinations for increasing/decreasing scale of the text
+        if key == pygame.K_EQUALS and (key_modifier & pygame.KMOD_CTRL or key_modifier & pygame.KMOD_LMETA):
+            if FONT_SIZE[1] * (self.text_size + 3) < self.surface.get_height() * 0.2:
+                self.text_size += 1
+            return
+        elif key == pygame.K_MINUS and (key_modifier & pygame.KMOD_CTRL or key_modifier & pygame.KMOD_LMETA):
             self.text_size -= 1
             self.text_size = max(self.text_size, 1)
-        else:
-            if key == pygame.K_LEFT:
-                self.caret_position[0] -= 1
-                self.caret_position[0] = max(min(self.caret_position[0], len(self.base_lines_of_text[self.caret_position[1]])), 0)
-                self.last_x_caret_position = self.caret_position[0]
-            elif key == pygame.K_RIGHT:
-                self.caret_position[0] += 1
-                self.caret_position[0] = max(min(self.caret_position[0], len(self.base_lines_of_text[self.caret_position[1]])), 0)
-                self.last_x_caret_position = self.caret_position[0]
-            elif key == pygame.K_UP:
-                self.caret_position[1] -= 1
-                self.caret_position[1] = max(min(self.caret_position[1], len(self.base_lines_of_text) - 1), 0)
-                self.caret_position[0] = min(self.last_x_caret_position, len(self.base_lines_of_text[self.caret_position[1]]))
-            elif key == pygame.K_DOWN:
-                self.caret_position[1] += 1
-                self.caret_position[1] = max(min(self.caret_position[1], len(self.base_lines_of_text) - 1), 0)
-                self.caret_position[0] = min(self.last_x_caret_position, len(self.base_lines_of_text[self.caret_position[1]]))
-            elif key == pygame.K_RETURN:
+            return
+        
+        if key == pygame.K_RETURN:
+            if self.mode == EditorMode.INSERT:
+                # Insert a new line below the caret if in insert mode
                 is_text_updated = True
 
                 # Add the same amount of whitespaces as on the previous line
@@ -131,7 +196,14 @@ class Editor(Component):
 
                 self.caret_position[0] = whitespaces
                 self.caret_position[1] += 1
-            elif key == pygame.K_DELETE:
+            else:
+                # Just step further to the next line if in command mode (the same as pressing down arrow)
+                self.caret_position[1] += 1
+                self.caret_position[1] = max(min(self.caret_position[1], len(self.base_lines_of_text) - 1), 0)
+                self.caret_position[0] = min(self.last_x_caret_position, len(self.base_lines_of_text[self.caret_position[1]]))
+        elif key == pygame.K_DELETE:
+            if self.mode == EditorMode.INSERT:
+                # Remove the character after the caret if in insert mode
                 is_text_updated = True
 
                 # If the caret is in the end of the line and we have a line below, connect it with the previous one
@@ -140,7 +212,14 @@ class Editor(Component):
                 # If the caret is not in the end of the line, just remove a letter
                 else:
                     self.base_lines_of_text[self.caret_position[1]] = line_text[:self.caret_position[0]] + line_text[self.caret_position[0] + 1:]
-            elif key == pygame.K_BACKSPACE:
+            elif self.mode == EditorMode.COMMAND:
+                # Just step further in the line if in command mode (the same as pressing right arrow)
+                self.caret_position[0] += 1
+                self.caret_position[0] = max(min(self.caret_position[0], len(self.base_lines_of_text[self.caret_position[1]])), 0)
+                self.last_x_caret_position = self.caret_position[0]
+        elif key == pygame.K_BACKSPACE:
+            if self.mode == EditorMode.INSERT:
+                # Remove the character before the caret if in insert mode
                 is_text_updated = True
                 
                 # If the caret is not in the beginning of the line, just remove a letter
@@ -153,16 +232,33 @@ class Editor(Component):
                     self.base_lines_of_text[self.caret_position[1] - 1] += self.base_lines_of_text[self.caret_position[1]]
                     self.base_lines_of_text.pop(self.caret_position[1])
                     self.caret_position[1] -= 1
-            elif key_unicode.isalpha() or Editor.__is_allowed_nonalpha_chars(key_unicode) and len(key_unicode) >= 1:
+            elif self.mode == EditorMode.COMMAND_INSERT:
+                # Remove the last character from the command insert value
+                self.command_insert_value = self.command_insert_value[:-1]
+            elif self.mode == EditorMode.COMMAND:
+                # Just step further in the line if in command mode (the same as pressing left arrow)
+                self.caret_position[0] -= 1
+                self.caret_position[0] = max(min(self.caret_position[0], len(self.base_lines_of_text[self.caret_position[1]])), 0)
+                self.last_x_caret_position = self.caret_position[0]
+        elif unicode.isalpha() or Editor.__is_allowed_nonalpha_chars(unicode) and len(unicode) >= 1:
+            if self.mode == EditorMode.INSERT and not skip_letter_insert:
                 is_text_updated = True
-                
-                for char in key_unicode:
-                    # Type the text into the editor lines
-                    self.base_lines_of_text[self.caret_position[1]] = line_text = line_text[:self.caret_position[0]] + char + line_text[self.caret_position[0]:]
-                    self.caret_position[0] += 1
+                line_text = self.insert_at_current_caret(unicode)
+            elif self.mode == EditorMode.COMMAND_INSERT:
+                self.command_insert_value += unicode
+        
+        # If text was updated, parse it again
         if is_text_updated:
             self.token_lines = self.syntax_highlighter.parse_code(self.base_lines_of_text)
         
+    def insert_at_current_caret(self, text):
+        line_text = self.base_lines_of_text[self.caret_position[1]]
+        for char in text:
+            # Type the text into the editor lines
+            self.base_lines_of_text[self.caret_position[1]] = line_text = line_text[:self.caret_position[0]] + char + line_text[self.caret_position[0]:]
+            self.caret_position[0] += 1
+        return line_text
+    
     def propagate_event(self, event):
         if event.type == pygame.KEYDOWN:
             self.editor_current_pressed_key = [event.key, event.unicode, event.mod]
@@ -178,7 +274,7 @@ class Editor(Component):
 
     def draw_frame(self):
         # Calculate amount of lines that can fit the height of the editor surface
-        amount_of_lines_surf_height = int(self.surface.get_height() / (FONT_SIZE[1] * self.text_size)) - 1
+        amount_of_lines_surf_height = int(self.surface.get_height() / (FONT_SIZE[1] * self.text_size)) - 2
 
         # Calculate the offset of lines that should be displayed on the screen based on current caret Y
         y_line_offset = self.caret_position[1] - amount_of_lines_surf_height
@@ -205,7 +301,7 @@ class Editor(Component):
         new_lines_indicator_width = 1
 
         # Only redraw the lines if they has updated
-        if self.previous_lines_to_draw != lines_to_draw or self.forcefully_update_editor > 0:
+        if True or self.previous_lines_to_draw != lines_to_draw or self.forcefully_update_editor > 0:
             self.forcefully_update_editor -= 1
             self.forcefully_update_editor = max(self.forcefully_update_editor, 0)
             self.cache_lines_surface.fill((0, 0, 0))
@@ -267,9 +363,30 @@ class Editor(Component):
                 self.surface,
                 (255, 255, 255),
                 (self.caret_position[0] * FONT_SIZE[0] * self.text_size + self.lines_indicator_x_offset * self.text_size,
-                 self.caret_position[1] * FONT_SIZE[1] * self.text_size +FONT_SIZE[1] * self.text_size - self.caret_height * self.text_size - self.current_y_line_offset * FONT_SIZE[1] * self.text_size,
+                 self.caret_position[1] * FONT_SIZE[1] * self.text_size + FONT_SIZE[1] * self.text_size - self.caret_height * self.text_size - self.current_y_line_offset * FONT_SIZE[1] * self.text_size,
                 self.caret_width * self.text_size, self.caret_height * self.text_size)
             )
+
+        # Display current mode at the vert bottom of the editor
+        status_bar_background_color = (0, 0, 0)
+        status_bar_color = (255, 255, 255)
+        status_bar_text = f"Mode: {self.mode.value}"
+        if self.mode == EditorMode.INSERT:
+            status_bar_background_color = (100, 100, 190)
+        
+        if self.mode == EditorMode.COMMAND_INSERT:
+            status_bar_text = f":{self.command_insert_value}"
+        elif self.status_bar_text_timeout > 0:
+            status_bar_text += f" | {self.status_bar_text}"
+    
+        draw_text(
+            self.surface,
+            status_bar_text,
+            status_bar_color,
+            status_bar_background_color,
+            0, self.surface.get_height() - FONT_SIZE[1] * self.text_size,
+            (self.text_size, self.text_size)
+        )
 
         return super().draw_frame()
 

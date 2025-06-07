@@ -1,7 +1,7 @@
 import pygame
 from functools import lru_cache
 
-@lru_cache(maxsize=512)
+@lru_cache(maxsize=128)
 def draw_bitmap(color, background, bitmap, width, height, pixel_size: int = (1, 1)):
     surface = pygame.Surface((width * pixel_size[0], height * pixel_size[1]))
     for index_x in range(width):
@@ -44,7 +44,6 @@ def draw_text(surface, text, color, background, x, y, pixel_size=(5, 5)):
 
 FONT_SIZE = 8, 16
 BITMAP_LETTERS_FONT = {
-
     ' ': (
         0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0,
@@ -1107,7 +1106,7 @@ BITMAP_LETTERS_FONT = {
         0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0,
     ),
-    '(': (
+    '[': (
         0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 1, 1, 1, 1, 0, 0,
@@ -1143,7 +1142,7 @@ BITMAP_LETTERS_FONT = {
         0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0,
     ),
-    ')': (
+    ']': (
         0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 1, 1, 1, 1, 0, 0,

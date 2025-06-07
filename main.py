@@ -45,9 +45,9 @@ class EditorApplication:
         self.running = True
         self.caption = caption
         self.components = []
-        self.fps = 120
+        self.fps = 30
 
-        self.editor = Editor("syntax_highlighter.py", PySyntaxHighlighter)
+        self.editor = Editor("editor.py", PySyntaxHighlighter)
         self.add_component(self.editor)
 
         import main, component, editor, font, syntax_highlighter
@@ -78,9 +78,9 @@ class EditorApplication:
             self.process_events()
             self.update_frame()
             
-            if self.hotreload.try_to_reload():
-                for i in self.components:
-                    i.reload()
+            # if self.hotreload.try_to_reload():
+            #     for i in self.components:
+            #         i.reload()
 
             pygame.display.flip()
             pygame.display.set_caption(f"{self.caption} - FPS: {round(self.timer.get_fps(), 1)}")
