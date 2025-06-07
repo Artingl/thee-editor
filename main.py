@@ -2,11 +2,11 @@ import pygame
 import sys
 import time
 import os
+import json
 
 from importlib import reload
 from component import *
 from editor import *
-from syntax_highlighter import *
 
 pygame.init()
 
@@ -39,19 +39,63 @@ class HotreloadWatchdog:
 
 
 class EditorApplication:
-    def __init__(self, caption: str = "Unnamed"):
+    def __init__(self, caption: str = "Unnamed", config_path: str = "config.json"):
         self.window = pygame.display.set_mode((800, 600), pygame.RESIZABLE)
         self.timer = pygame.time.Clock()
         self.running = True
+        self.is_restarting = False
         self.caption = caption
         self.components = []
         self.fps = 30
+        self.config = {}
+        self.config_last_save = time.time()
+        self.config_path = config_path
+        self.load_config()
 
-        self.editor = Editor(self, "editor.py", PySyntaxHighlighter)
+        self.editor = Editor(self)
         self.add_component(self.editor)
 
         import main, component, editor, font, syntax_highlighter
         self.hotreload = HotreloadWatchdog(main, component, editor, font, syntax_highlighter)
+        
+    def close(self):
+        self.running = False
+        self.save_config()
+
+    def restart(self):
+        self.running = False
+        self.is_restarting = True
+        self.save_config()
+
+    def reload(self):
+        if self.hotreload.try_to_reload():
+            for i in self.components:
+                i.reload()
+
+    def save_config(self):
+        with open(self.config_path, "w") as file:
+            json.dump(self.config, file)
+
+    def load_config(self):
+        if os.path.isfile(self.config_path):
+            with open(self.config_path, "r") as file:
+                self.config = json.load(file)
+    
+    def store_config_value(self, key, param, value):
+        if key not in self.config:
+            self.config[key] = {}
+        self.config[key][param] = value
+    
+    def get_config_value(self, key, param, default=None):
+        if value := self.config.get(key):
+            if found_value := value.get(param):
+                return found_value
+        return default
+
+    def remove_config_value(self, key, param):
+        if key in self.config:
+            if param in self.config[key]:
+                del self.config[key][param]
 
     def get_width(self):
         return self.window.get_width()
@@ -83,9 +127,10 @@ class EditorApplication:
             self.process_events()
             self.update_frame()
             
-            # if self.hotreload.try_to_reload():
-            #     for i in self.components:
-            #         i.reload()
+            # Save config every second
+            if self.config_last_save < time.time():
+                self.config_last_save = time.time() + 1
+                self.save_config()
 
             pygame.display.flip()
             pygame.display.set_caption(f"{self.caption} - FPS: {round(self.timer.get_fps(), 1)}")
@@ -96,4 +141,8 @@ class EditorApplication:
 if __name__ == "__main__":
     application = EditorApplication("theeditor")
     application.run_loop()
-    sys.exit(0)
+
+    if application.is_restarting:
+        os.execv(sys.executable, ['python'] + sys.argv)
+    else:
+        sys.exit(0)

@@ -1,13 +1,26 @@
 import pygame
 import string
 import pyperclip
+import shlex
+import os
 
 from enum import Enum
 from component import *
+from syntax_highlighter import *
 from font import draw_text, FONT_SIZE
 
 # Call the method once, so the module initializes
 pyperclip.paste()
+
+
+def is_allowed_nonalpha_chars(chars):
+    allowed_chars = string.punctuation + string.digits + " "
+    return all(i in allowed_chars for i in chars)
+
+
+def is_allowed_alpha_chars(chars):
+    allowed_chars = string.ascii_letters + string.digits + "_"
+    return chars[0].isalpha() and all(i in allowed_chars for i in chars)
 
 
 class EditorMode(Enum):
@@ -35,9 +48,9 @@ class EditorStatusbar(Component):
             self.surface = pygame.Surface((self.application.get_width(), FONT_SIZE[1] * self.editor.text_size))
             self.y = self.application.get_height() - FONT_SIZE[1] * self.editor.text_size
     
-    def display_statusbar_text(self, text, color=(255, 255, 255), background=(0, 0, 0)):
+    def display_text(self, text, color=(255, 255, 255), background=(0, 0, 0)):
         self.status_bar_text = text
-        self.status_bar_text_timeout = 2
+        self.status_bar_text_timeout = 4
         self.status_bar_text_color = color
         self.status_bar_text_background = background
 
@@ -52,12 +65,13 @@ class EditorStatusbar(Component):
     def draw_frame(self):
         status_bar_background_color = (0, 0, 0)
         status_bar_color = (255, 255, 255)
-        status_bar_text = f"Mode: {self.editor.mode.value}"
+        status_bar_text = f"Mode: {self.editor.mode.value}; {self.editor.filename} ({self.editor.file_type})"
         if self.editor.mode == EditorMode.INSERT:
             status_bar_background_color = (100, 100, 190)
         
         if self.editor.mode == EditorMode.COMMAND_INSERT:
             status_bar_text = f":{self.editor.command_insert_value}"
+            self.status_bar_text_timeout = 0
         elif self.status_bar_text_timeout > 0:
             status_bar_text = self.status_bar_text
             status_bar_color = self.status_bar_text_color
@@ -75,33 +89,131 @@ class EditorStatusbar(Component):
         return super().draw_frame()
 
 
+class Command:
+    def __init__(self, executor):
+        self.executor = executor
+        self.application = executor.editor.application
+        self.editor = executor.editor
+        self.status_bar = executor.editor.status_bar
+    
+    def execute(self, cmd, args): ...
+
+
+class OpenCommand(Command):
+    def execute(self, cmd, args):
+        if len(args) == 0:
+            self.status_bar.display_text("Provide file name 'open FILENAME'", background=(255, 0, 0))
+            return
+
+        if not os.path.isfile(args[0]):
+            self.status_bar.display_text(f"File '{args[0]}' doesn't exist", background=(255, 0, 0))
+            return
+        if self.editor.is_unsaved and (len(args) == 1 or args[1] != "!"):
+            self.status_bar.display_text(f"Current file is unsaved. Save it or type 'open FILENAME !'", background=(255, 0, 0))
+            return
+
+        self.editor.open_file(args[0])
+
+
+class SaveCommand(Command):
+    def execute(self, cmd, args):
+        if args:
+            self.editor.filename = args[0]
+        self.editor.save_file()
+        self.status_bar.display_text(f"Saved file as '{self.editor.filename}'")
+
+
+class ExitQuitRestartCommand(Command):
+    def execute(self, cmd, args):
+        if self.editor.is_unsaved and (len(args) == 0 or args[0] != "!"):
+            self.status_bar.display_text(f"Current file is unsaved. Save it or type '{cmd} !'", background=(255, 0, 0))
+            return
+        if cmd == 'exit' or cmd == 'quit':
+            self.application.close()
+        else:
+            self.application.restart()
+
+
+class NewCommand(Command):
+    def execute(self, cmd, args):
+        filename = "unnamed.txt"
+        if args:
+            filename = args[0]
+        self.editor.open_file(filename)
+
+
+class ShellCommand(Command):
+    def execute(self, cmd, args):
+        # TODO: implement a better way to execute shell commands
+        os.system(' '.join(args))
+
+
+class ReloadCommand(Command):
+    def execute(self, cmd, args):
+        self.application.reload()
+        self.status_bar.display_text("Successfully reloaded")
+
+
 class CommandExecutor:
     def __init__(self, editor):
         self.editor = editor
         self.status_bar = self.editor.status_bar
+        self.last_successful_search_pattern = None
+
+        self.commands = {
+            ('open'): OpenCommand(self),
+            ('save'): SaveCommand(self),
+            ('exit', 'quit', 'restart'): ExitQuitRestartCommand(self),
+            ('reload'): ReloadCommand(self),
+            ('new'): NewCommand(self),
+            ('shell'): ShellCommand(self),
+        }
     
+    def repeat_last_search(self):
+        command = self.last_successful_search_pattern
+        if not self.editor.find_first_pattern(command):
+            self.last_successful_search_pattern = None
+            self.status_bar.display_text(f"Unable to find '{command}'", background=(255, 0, 0))
+        else:
+            self.last_successful_search_pattern = command
+
     def execute(self, command):
+        command, *args = shlex.split(command)
+
         # If the command is just a number, go to that line number
         if command.isdigit():
-            self.editor.set_caret_line(int(command))
+            command = int(command)
+            if command <= 0 or command > len(self.editor.base_lines_of_text):
+                self.status_bar.display_text(f"Invalid line! Available range: 1...{len(self.editor.base_lines_of_text)}", background=(255, 0, 0))
+            else:
+                self.editor.set_caret_line(command)
         else:
-            self.status_bar.display_statusbar_text(f"Invalid command!", background=(255, 0, 0))
-
-        # print("Execute", self.command_insert_value)
+            for commands_list, instance in self.commands.items():
+                if command in commands_list:
+                    instance.execute(command, args)
+                    return
+            # If unable to find the command with such name, try to use the command as a search pattern in the editor text
+            if not self.editor.find_first_pattern(command):
+                self.last_successful_search_pattern = None
+                self.status_bar.display_text(f"Unable to find '{command}'", background=(255, 0, 0))
+            else:
+                self.last_successful_search_pattern = command
+        
+            # self.status_bar.display_text(f"Invalid command!", background=(255, 0, 0))
 
 
 class Editor(Component):
-    def __init__(self, app, filename, syntax_highlighter):
+    def __init__(self, app):
         super().__init__(app, (app.get_width(), app.get_height() - FONT_SIZE[1]))
-
-        self.file_name = filename
-        self.base_lines_of_text = []
+        self.filename = "unnamed.txt"
+        self.file_type = "text file"
+        self.base_lines_of_text = [""]
         self.token_lines = []
         self.text_size = 1
         self.scroll_offset = 4
         self.caret_width = 1
         self.caret_height = FONT_SIZE[1]
-        self.syntax_highlighter = syntax_highlighter(self)
+        self.syntax_highlighter = BaseSyntaxHighlighter(self)
 
         self.previous_lines_to_draw = None
         self.cache_lines_surface = pygame.Surface((self.surface.get_width(), self.surface.get_height()))
@@ -111,6 +223,7 @@ class Editor(Component):
         self.caret_position = [0, 0]
         self.caret_blink_animation = 0
         self.caret_animation_speed = 6
+        self.is_unsaved = False
         self.caret_blink_animation_flag = False
         self.editor_type_delay = 0
         self.editor_current_pressed_key = [None, None, None]
@@ -126,8 +239,11 @@ class Editor(Component):
         self.add_child_component(self.status_bar)
 
         self.command_insert_value = ""
+        self.token_lines = self.syntax_highlighter.parse_code(self.base_lines_of_text)
 
-        self.load_file()
+        last_opened_file = app.get_config_value("editor", "last_opened_file")
+        if last_opened_file:
+            self.open_file(last_opened_file)
 
     @classmethod
     def __get_whitespaces(self, line):
@@ -139,22 +255,63 @@ class Editor(Component):
                 break
         return whitespaces_count
 
-    @classmethod
-    def __is_allowed_nonalpha_chars(cls, chars):
-        allowed_nonalpha_chars = string.punctuation + string.digits + " "
-        return all(i in allowed_nonalpha_chars for i in chars)
-
     def get_text_color(self, x, y):
         return self.syntax_highlighter.get_color(self.caret_position[0] + x, self.caret_position[1] + y)
 
+    def update_syntax_highlighter(self, filename):
+        filename = filename.lower()
+        if filename.endswith(".py"):
+            self.file_type = "Python file"
+            self.syntax_highlighter = PySyntaxHighlighter(self)
+        elif filename.endswith(".json"):
+            self.file_type = "JSON file"
+            self.syntax_highlighter = JsonSyntaxHighlighter(self)
+        elif filename.endswith(".c") \
+            or filename.endswith(".cc") \
+            or filename.endswith(".cpp") \
+            or filename.endswith(".h") \
+            or filename.endswith(".hpp"):
+            if filename.endswith(".h") or filename.endswith(".hpp"):
+                self.file_type = "C/C++ Header file"
+            else:
+                self.file_type = "C/C++ file"
+            self.syntax_highlighter = CSyntaxHighlighter(self)
+        else:
+            self.file_type = "text file"
+            self.syntax_highlighter = BaseSyntaxHighlighter(self)
+
+    def open_file(self, filename):
+        self.caret_position = self.application.get_config_value("last_caret_position", filename, default=[0, 0])
+        self.lines_indicator_x_offset, \
+            self.current_y_line_offset, \
+            self.previous_y_line_offset, \
+            self.last_x_caret_position = self.application.get_config_value("last_scroll_offset", filename, default=[0, 0, 0, 0])
+        self.filename = filename
+        self.update_syntax_highlighter(filename)
+
+        if not os.path.isfile(filename):
+            # Open it as a new file
+            self.base_lines_of_text = [""]
+            self.token_lines = self.syntax_highlighter.parse_code(self.base_lines_of_text)
+            self.application.remove_config_value("editor", "last_opened_file")
+            return
+
+        self.application.store_config_value("editor", "last_opened_file", self.filename)
+        self.load_file()
+
     def load_file(self):
-        with open(self.file_name, "r") as file:
+        with open(self.filename, "r") as file:
             self.base_lines_of_text = file.read().split("\n")
             self.token_lines = self.syntax_highlighter.parse_code(self.base_lines_of_text)
 
     def save_file(self):
-        with open(self.file_name, "w") as file:
+        with open(self.filename, "w") as file:
             file.write('\n'.join(self.base_lines_of_text))
+        self.is_unsaved = False
+
+        # Re-open the file, because we might have saved a new file.
+        # By doing do we'll get proper syntax highlighting and stuff
+        self.open_file(self.filename)
 
     def reload(self):
         self.forcefully_update_editor = 4
@@ -163,6 +320,18 @@ class Editor(Component):
         return super().reload()
 
     def update(self, dt):
+        # Save current caret position in config
+        self.application.store_config_value("last_caret_position", self.filename, self.caret_position)
+
+        # Also the scroll offset
+        self.application.store_config_value(
+            "last_scroll_offset", self.filename,
+            [self.lines_indicator_x_offset,
+             self.current_y_line_offset,
+             self.previous_y_line_offset,
+             self.last_x_caret_position]
+        )
+
         self.caret_blink_animation += dt * self.caret_animation_speed
         self.editor_type_delay -= dt
         if self.caret_blink_animation > 2:
@@ -232,7 +401,7 @@ class Editor(Component):
             # Save the file if the 's' letter is pressed and in command mode OR if a modifier is pressed
             if self.mode == EditorMode.COMMAND or (key_modifier & pygame.KMOD_CTRL or key_modifier & pygame.KMOD_LMETA):
                 self.save_file()
-                self.status_bar.display_statusbar_text(f"Saved file as {self.file_name}")
+                self.status_bar.display_text(f"Saved file as {self.filename}")
                 skip_letter_insert = True
         if key == pygame.K_v:
             # Paste from clipboard if the 'v' letter is pressed and in command mode OR if a modifier is pressed
@@ -241,8 +410,12 @@ class Editor(Component):
                 skip_letter_insert = True
                 text = pyperclip.paste()
                 self.insert_at_current_caret(text)
-                self.status_bar.display_statusbar_text("Pasted text")
+                self.status_bar.display_text("Pasted text")
                 print(f"Pasted text: {text}")
+            
+        # If 'r' letter is pressed and in command mode, repeat the last successful text search in the editor
+        if key == pygame.K_r and self.mode == EditorMode.COMMAND:
+            self.command_executor.repeat_last_search()
         
         # Key combinations for increasing/decreasing scale of the text
         if key == pygame.K_EQUALS and (key_modifier & pygame.KMOD_CTRL or key_modifier & pygame.KMOD_LMETA):
@@ -316,8 +489,8 @@ class Editor(Component):
                 self.caret_position[0] -= 1
                 self.caret_position[0] = max(min(self.caret_position[0], len(self.base_lines_of_text[self.caret_position[1]])), 0)
                 self.last_x_caret_position = self.caret_position[0]
-        elif unicode.isalpha() or Editor.__is_allowed_nonalpha_chars(unicode) and len(unicode) >= 1:
-            if self.mode == EditorMode.INSERT and not skip_letter_insert:
+        elif unicode.isalpha() or is_allowed_nonalpha_chars(unicode) and len(unicode) >= 1 and not skip_letter_insert:
+            if self.mode == EditorMode.INSERT:
                 is_text_updated = True
                 line_text = self.insert_at_current_caret(unicode)
             elif self.mode == EditorMode.COMMAND_INSERT:
@@ -325,8 +498,28 @@ class Editor(Component):
         
         # If text was updated, parse it again
         if is_text_updated:
+            self.is_unsaved = True
             self.token_lines = self.syntax_highlighter.parse_code(self.base_lines_of_text)
-        
+    
+    def find_first_pattern(self, pattern):
+        """Searches for first appearance in the code after current caret position"""
+        for idx, line in enumerate(self.base_lines_of_text[self.caret_position[1]:]):
+            if (position := line.find(pattern)) != -1 and [position, idx + self.caret_position[1]] != self.caret_position:
+                self.caret_position[0] = position
+                self.caret_position[1] += idx
+                self.center_caret_on_screen()
+                return True
+
+        # If couldn't find after caret, try to find from the beginning of the text
+        for idx, line in enumerate(self.base_lines_of_text):
+            if (position := line.find(pattern)) != -1 and [position, idx] != self.caret_position:
+                self.caret_position[0] = position
+                self.caret_position[1] = idx
+                self.center_caret_on_screen()
+                return True
+
+        return False
+
     def insert_at_current_caret(self, text):
         line_text = self.base_lines_of_text[self.caret_position[1]]
         for char in text:
@@ -340,6 +533,10 @@ class Editor(Component):
         if 0 <= line < len(self.base_lines_of_text):
             self.caret_position[1] = line
             self.caret_position[0] = len(self.base_lines_of_text[self.caret_position[1]])
+            self.center_caret_on_screen()
+    
+    def center_caret_on_screen(self):
+        self.current_y_line_offset = max(self.caret_position[1] - self.get_amount_of_lines_surf_height() // 2, 0)
 
     def propagate_event(self, event):
         if event.type == pygame.KEYDOWN:
@@ -354,9 +551,12 @@ class Editor(Component):
 
         return super().propagate_event(event)
 
+    def get_amount_of_lines_surf_height(self):
+        return round(self.surface.get_height() / (FONT_SIZE[1] * self.text_size))
+
     def draw_frame(self):
         # Calculate amount of lines that can fit the height of the editor surface
-        amount_of_lines_surf_height = int(self.surface.get_height() / (FONT_SIZE[1] * self.text_size)) - 1
+        amount_of_lines_surf_height = self.get_amount_of_lines_surf_height()
 
         # Calculate the offset of lines that should be displayed on the screen based on current caret Y
         y_line_offset = self.caret_position[1] - amount_of_lines_surf_height
@@ -367,8 +567,7 @@ class Editor(Component):
             self.current_y_line_offset -= 1
         # Scroll upwards if self.scroll_offset amount of lines is left before we reach the bottom of the screen
         # And if we'd not go over the total amount of lines
-        elif self.current_y_line_offset > 0 \
-                and y_line_offset + self.scroll_offset > self.current_y_line_offset \
+        elif y_line_offset + self.scroll_offset > self.current_y_line_offset \
                 and y_line_offset > self.previous_y_line_offset \
                 and self.current_y_line_offset + amount_of_lines_surf_height + 1 < len(self.base_lines_of_text):
             self.current_y_line_offset += 1

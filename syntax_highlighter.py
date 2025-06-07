@@ -9,7 +9,7 @@ NUMBER_LITERAL_COLOR = (100, 190, 150)
 COMMENT_COLOR = (130, 190, 100)
 
 
-class SyntaxHighlighter:
+class BaseSyntaxHighlighter:
     def __init__(self, editor):
         self.editor = editor
         self.position = [0, 0]
@@ -115,12 +115,12 @@ class Token:
         return f"Token[{self.value}, {self.color}, {self.background}, {self.is_new_line}]"
 
 
-class CSyntaxHighlighter(SyntaxHighlighter):
+class CSyntaxHighlighter(BaseSyntaxHighlighter):
     KEYWORDS = ['int', 'char', 'const', 'void', 'short', 'struct', 'return', 'if', 'else', 'while', 'for',
                 'do', 'goto', 'double', 'float', 'long', 'break', 'continue', 'switch', 'case', 'size_t',
                 'uint8_t', 'uint16_t', 'uint32_t', 'uint64_t', 'int8_t', 'int16_t', 'int32_t', 'int64_t',
-                'size_t', 'unsigned', 'NULL', 'extern', 'true', 'false']
-    RESERVED_NAMES_KEYWORDS = []
+                'size_t', 'unsigned', 'static', 'extern']
+    RESERVED_NAMES_KEYWORDS = ['NULL', 'true', 'false']
 
 
     def parse_code(self, lines_of_code):
@@ -186,9 +186,10 @@ class CSyntaxHighlighter(SyntaxHighlighter):
 
         return tokens, is_end
 
-class PySyntaxHighlighter(SyntaxHighlighter):
+class PySyntaxHighlighter(BaseSyntaxHighlighter):
     KEYWORDS = ['if', 'elif', 'else', 'for', 'while', 'import', 'from', 'class', 'def', 'self', 'or', 'and', 'not',
-                'in', 'lambda', 'match', 'case', 'break', 'continue', 'return', 'True', 'False', 'None']
+                'in', 'lambda', 'match', 'case', 'break', 'continue', 'return', 'True', 'False', 'None', 'pass', 'with',
+                'as']
     RESERVED_NAMES_KEYWORDS = ['print', '__init__', 'str', 'int', 'float', 'bool', 'input']
 
     def parse_code(self, lines_of_code):
@@ -216,7 +217,7 @@ class PySyntaxHighlighter(SyntaxHighlighter):
         char, is_end, is_new_line = self.next_char(step_further=False)
 
         if char in ['"', "'"]:
-            tokens, is_end = self.parse_literal(lambda x: x == ('>' if char == '<' else char), STRING_LITERAL_COLOR)
+            tokens, is_end = self.parse_literal(lambda x: x == char, STRING_LITERAL_COLOR)
         elif char.isalpha() or char == '@':
             checker = lambda x: not (x.isalpha() or x.isdigit() or x == '_')
             if char == '@':
@@ -237,6 +238,56 @@ class PySyntaxHighlighter(SyntaxHighlighter):
             tokens, is_end = self.parse_literal(lambda x: not x.isdigit(), NUMBER_LITERAL_COLOR, skip_last_character=True)
         elif char == '#':
             tokens, is_end = self.parse_singleline_comment()
+        else:
+            char, is_end, is_new_line = self.next_char()
+            tokens = [Token(char, BASE_COLOR, (0, 0, 0), is_new_line=is_new_line)]
+
+        return tokens, is_end
+
+
+
+class JsonSyntaxHighlighter(BaseSyntaxHighlighter):
+    KEYWORDS = ['true', 'false', 'null']
+
+    def parse_code(self, lines_of_code):
+        self.reset_code(lines_of_code)
+        result = []
+        line = []
+        while True:
+            tokens, is_end = self.parse_tokens()
+
+            for token in tokens:
+                line.append(token)
+                if token.is_new_line:
+                    result.append(line)
+                    line = []
+            
+            if is_end:
+                break
+        if line:
+            result.append(line)
+
+        return result
+
+    def parse_tokens(self):
+        tokens = None
+        char, is_end, is_new_line = self.next_char(step_further=False)
+
+        if char in ['"', "'"]:
+            tokens, is_end = self.parse_literal(lambda x: x == char, STRING_LITERAL_COLOR)
+        elif char.isalpha():
+            tokens, is_end = self.parse_literal(
+                lambda x: not (x.isalpha() or x.isdigit() or x == '_'),
+                KEYWORD0_LITERAL_COLOR,
+                skip_last_character=True
+            )
+
+            # Highlight different keywords with different color
+            for token in tokens:
+                if token.value not in JsonSyntaxHighlighter.KEYWORDS:
+                    token.color = BASE_COLOR
+        elif char.isdigit():
+            tokens, is_end = self.parse_literal(lambda x: not x.isdigit(), NUMBER_LITERAL_COLOR, skip_last_character=True)
         else:
             char, is_end, is_new_line = self.next_char()
             tokens = [Token(char, BASE_COLOR, (0, 0, 0), is_new_line=is_new_line)]
