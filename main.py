@@ -3,6 +3,7 @@ import sys
 
 from component import *
 from editor import *
+from syntax_highlighter import *
 
 pygame.init()
 
@@ -14,8 +15,9 @@ class EditorApplication:
         self.running = True
         self.caption = caption
         self.components = []
+        self.fps = 120
 
-        self.editor = Editor()
+        self.editor = Editor("editor.py", PySyntaxHighlighter)
         self.add_component(self.editor)
 
     def add_component(self, component):
@@ -27,7 +29,7 @@ class EditorApplication:
 
         for i in self.components:
             i.draw_frame()
-            i.update(1 / 60)
+            i.update(1 / self.fps)
 
     def process_events(self):
         for event in pygame.event.get():
@@ -45,9 +47,8 @@ class EditorApplication:
 
             pygame.display.flip()
             pygame.display.set_caption(f"{self.caption} - FPS: {round(self.timer.get_fps(), 1)}")
-            self.timer.tick(60)
+            self.timer.tick(self.fps)
         pygame.quit()
-
 
 
 if __name__ == "__main__":

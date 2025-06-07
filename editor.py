@@ -1,23 +1,27 @@
 import pygame
 import string
 
-from syntax_highlighter import *
 from component import *
 from font import draw_text, FONT_SIZE
 
 
 class Editor(Component):
-    def __init__(self):
+    def __init__(self, filename, syntax_highlighter):
         super().__init__((800, 600))
 
-        self.file_name = "main.c"
+        self.file_name = filename
         self.base_lines_of_text = []
         self.token_lines = []
         self.text_size = 1
         self.scroll_offset = 4
         self.caret_width = 1
         self.caret_height = FONT_SIZE[1]
-        self.syntax_highlighter = CSyntaxParser(self)
+        self.syntax_highlighter = syntax_highlighter(self)
+
+        self.previous_lines_to_draw = None
+        self.cache_lines_surface = pygame.Surface((self.surface.get_width(), self.surface.get_height()))
+        # Amount of frames that needs to be forcefully drawn by the editor without caching
+        self.forcefully_update_editor = 4
 
         self.caret_position = [0, 0]
         self.caret_blink_animation = 0
@@ -164,6 +168,7 @@ class Editor(Component):
             self.editor_current_pressed_key = [None, None, None]
         if event.type == pygame.VIDEORESIZE:
             self.surface = pygame.Surface((event.w, event.h))
+            self.cache_lines_surface = pygame.Surface((event.w, event.h))
 
         return super().propagate_event(event)
 
@@ -195,53 +200,62 @@ class Editor(Component):
         # Draw the lines of text
         new_lines_indicator_width = 1
 
-        for line_number, tokens in enumerate(lines_to_draw):
-            x_offset = 0
-            y_offset = line_number * FONT_SIZE[1] * self.text_size
-            line_number += self.current_y_line_offset
+        # Only redraw the lines if they has updated
+        if self.previous_lines_to_draw != lines_to_draw or self.forcefully_update_editor > 0:
+            self.forcefully_update_editor -= 1
+            self.forcefully_update_editor = max(self.forcefully_update_editor, 0)
+            self.cache_lines_surface.fill((0, 0, 0))
+            self.previous_lines_to_draw = lines_to_draw
+            for line_number, tokens in enumerate(lines_to_draw):
+                x_offset = 0
+                y_offset = line_number * FONT_SIZE[1] * self.text_size
+                line_number += self.current_y_line_offset
 
-            # Draw the line indicator
-            line_indicator_width, _ = draw_text(
-                self.surface,
-                f"{line_number + 1}",
-                (255, 255, 255),
-                (0, 0, 0),
-                0, y_offset,
-                pixel_size=(self.text_size, self.text_size)
-            )
-            pygame.draw.rect(
-                self.surface,
-                (255, 255, 255),
-                ((self.lines_indicator_x_offset - 4) * self.text_size, y_offset,
-                int(1.5 * self.text_size), FONT_SIZE[1] * self.text_size)
-            )
-
-            # Dynamically update the lines indicator offset based on the width of the line number string
-            line_indicator_width += 5
-            if line_indicator_width > new_lines_indicator_width:
-                new_lines_indicator_width = line_indicator_width
-                if self.lines_indicator_x_offset == 0:
-                    self.lines_indicator_x_offset = new_lines_indicator_width
-
-            for token in tokens:
-                line = token
-                color = (255, 255, 255)
-                background = (0, 0, 0)
-                if token.__class__ != str:
-                    line = token.value
-                    color = token.color
-                    background = token.background
-                # Draw the line
-                offset, _ = draw_text(
-                    self.surface,
-                    line,
-                    color, background,
-                    self.lines_indicator_x_offset * self.text_size + x_offset, y_offset,
-                    pixel_size=(self.text_size, self.text_size),
+                # Draw the line indicator
+                line_indicator_width, _ = draw_text(
+                    self.cache_lines_surface,
+                    f"{line_number + 1}",
+                    (255, 255, 255),
+                    (0, 0, 0),
+                    0, y_offset,
+                    pixel_size=(self.text_size, self.text_size)
                 )
-                x_offset += offset * self.text_size
+                pygame.draw.rect(
+                    self.cache_lines_surface,
+                    (255, 255, 255),
+                    ((self.lines_indicator_x_offset - 4) * self.text_size, y_offset,
+                    int(1.5 * self.text_size), FONT_SIZE[1] * self.text_size)
+                )
+
+                # Dynamically update the lines indicator offset based on the width of the line number string
+                line_indicator_width += 5
+                if line_indicator_width > new_lines_indicator_width:
+                    new_lines_indicator_width = line_indicator_width
+                    if self.lines_indicator_x_offset == 0:
+                        self.lines_indicator_x_offset = new_lines_indicator_width
+
+                for token in tokens:
+                    line = token
+                    color = (255, 255, 255)
+                    background = (0, 0, 0)
+                    if token.__class__ != str:
+                        line = token.value
+                        color = token.color
+                        background = token.background
+                    # Draw the line
+                    offset, _ = draw_text(
+                        self.cache_lines_surface,
+                        line,
+                        color, background,
+                        self.lines_indicator_x_offset * self.text_size + x_offset, y_offset,
+                        pixel_size=(self.text_size, self.text_size),
+                    )
+                    x_offset += offset * self.text_size
             
-        self.lines_indicator_x_offset = new_lines_indicator_width
+            self.lines_indicator_x_offset = new_lines_indicator_width
+
+        # Draw the lines
+        self.surface.blit(self.cache_lines_surface, (0, 0))
 
         # Draw the caret at its current position
         if self.caret_blink_animation_flag:
