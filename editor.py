@@ -63,6 +63,10 @@ class Editor(Component):
         with open(self.file_name, "w") as file:
             file.write('\n'.join(self.base_lines_of_text))
 
+    def reload(self):
+        self.forcefully_update_editor = 4
+        self.token_lines = self.syntax_highlighter.parse_code(self.base_lines_of_text)
+
     def update(self, dt):
         self.caret_blink_animation += dt * self.caret_animation_speed
         self.editor_type_delay -= dt
