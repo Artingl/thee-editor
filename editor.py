@@ -174,8 +174,8 @@ class NewCommand(Command):
 class ShellCommand(Command):
     def execute(self, cmd, args):
         # TODO: implement a better way to execute shell commands
-        # os.system(' '.join(args))
         output = os.popen(' '.join(args)).read()
+        output = output.strip()
         output = output.replace("\n", "\\n")
         if output:
             self.status_bar.display_text(output)
@@ -288,12 +288,12 @@ class Editor(Component):
         self.caret_blink_animation_flag = False
         self.editor_update_delay = 0
         self.editor_current_pressed_key = [None, None, None]
-        self.editor_previous_pressed_key = [None, None, None]
         self.lines_indicator_x_offset = 0
         self.current_y_line_offset = 0
         self.previous_y_line_offset = 0
         self.last_x_caret_position = 0
-
+        self.cut_shortcut_count = 0
+        
         self.mode = EditorMode.COMMAND
 
         self.status_bar = EditorStatusbar(app, self)
@@ -495,16 +495,20 @@ class Editor(Component):
             self.mode = EditorMode.INSERT
         # If double 'd' letter is pressed and in command mode, cut current line and put it in clipboard.
         # Or if a combination ctrl + x is pressed
-        elif (key == pygame.K_d and self.editor_previous_pressed_key[0] == pygame.K_d and self.mode == EditorMode.COMMAND) or \
+        elif (key == pygame.K_d and self.mode == EditorMode.COMMAND) or \
             (key == pygame.K_x and (key_modifier & pygame.KMOD_CTRL or key_modifier & pygame.KMOD_LMETA)):
-            skip_letter_insert = True
-            is_text_updated = True
-            cut_text = "\n" + self.base_lines_of_text.pop(self.caret_position[1])
-            self.status_bar.display_text("Cut text")
-            pyperclip.copy(cut_text)
-            self.caret_position[1] = max(self.caret_position[1] - 1, 0)
-            self.caret_position[0] = len(self.base_lines_of_text[self.caret_position[1]])
-        
+            if key == pygame.K_x or self.cut_shortcut_count >= 1:
+                skip_letter_insert = True
+                is_text_updated = True
+                cut_text = self.base_lines_of_text.pop(self.caret_position[1]) + "\n"
+                self.status_bar.display_text(f"Cut line at {self.caret_position[1]}")
+                pyperclip.copy(cut_text)
+                self.caret_position[1] = min(self.caret_position[1], len(self.base_lines_of_text) - 1)
+                self.caret_position[0] = 0
+                self.cut_shortcut_count = 0
+            else:
+                self.cut_shortcut_count += 1
+
         # Key combinations for increasing/decreasing scale of the text
         if key == pygame.K_EQUALS and (key_modifier & pygame.KMOD_CTRL or key_modifier & pygame.KMOD_LMETA):
             if FONT_SIZE[1] * (self.text_size + 3) < self.surface.get_height() * 0.2:
@@ -613,9 +617,11 @@ class Editor(Component):
         line_text = self.base_lines_of_text[self.caret_position[1]]
         for char in text:
             if char == "\n":
+                line_after_caret = self.base_lines_of_text[self.caret_position[1]][self.caret_position[0]:]
+                self.base_lines_of_text[self.caret_position[1]] = line_text = line_text[:self.caret_position[0]]
                 self.caret_position[0] = 0
                 self.caret_position[1] += 1
-                self.base_lines_of_text.append("")
+                self.base_lines_of_text.insert(self.caret_position[1], line_after_caret)
                 continue
 
             # Type the text into the editor lines
@@ -635,13 +641,10 @@ class Editor(Component):
 
     def propagate_event(self, event):
         if event.type == pygame.KEYDOWN:
-            if self.editor_current_pressed_key[0] is not None:
-                self.editor_previous_pressed_key = self.editor_current_pressed_key
             self.editor_current_pressed_key = [event.key, event.unicode, event.mod]
             self.update_editor(*self.editor_current_pressed_key)
             self.editor_update_delay = 0.3
         if event.type == pygame.KEYUP:
-            self.editor_previous_pressed_key = self.editor_current_pressed_key
             self.editor_current_pressed_key = [None, None, None]
         if event.type == pygame.VIDEORESIZE:
             self.surface = pygame.Surface((event.w, event.h - FONT_SIZE[1] * self.text_size))
@@ -759,4 +762,3 @@ class Editor(Component):
             )
 
         return super().draw_frame()
-
