@@ -16,19 +16,17 @@ def draw_bitmap(color, background, bitmap, width, height, pixel_size: int = (1, 
 
 def draw_text(surface, text, color, background, x, y, pixel_size=(5, 5)):
     largest_x = 0
-
     x_offset = 0
     y_offset = 0
     for letter in text:
-
         if letter == "\n":
             if largest_x < x_offset:
                 largest_x = x_offset
             x_offset = 0
             y_offset += FONT_SIZE[1] * pixel_size[1]
             continue
-
-        if bitmap := BITMAP_LETTERS_FONT.get(letter):
+        
+        if bitmap := BITMAP_LETTERS_FONT.get(letter, BITMAP_LETTERS_FONT[None]):
             result_surface = draw_bitmap(
                 color, background,
                 bitmap, *FONT_SIZE,
@@ -44,6 +42,25 @@ def draw_text(surface, text, color, background, x, y, pixel_size=(5, 5)):
 
 FONT_SIZE = 8, 16
 BITMAP_LETTERS_FONT = {
+    None: (
+        0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0,
+        0, 1, 1, 1, 1, 1, 1, 0,
+        0, 1, 0, 0, 0, 0, 1, 0,
+        0, 1, 0, 0, 0, 0, 1, 0,
+        0, 1, 0, 0, 0, 0, 1, 0,
+        0, 1, 0, 0, 0, 0, 1, 0,
+        0, 1, 0, 0, 0, 0, 1, 0,
+        0, 1, 0, 0, 0, 0, 1, 0,
+        0, 1, 0, 0, 0, 0, 1, 0,
+        0, 1, 0, 0, 0, 0, 1, 0,
+        0, 1, 0, 0, 0, 0, 1, 0,
+        0, 1, 0, 0, 0, 0, 1, 0,
+        0, 1, 1, 1, 1, 1, 1, 0,
+        0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0,
+    ),
+
     ' ': (
         0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0,

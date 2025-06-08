@@ -189,7 +189,7 @@ class CSyntaxHighlighter(BaseSyntaxHighlighter):
 class PySyntaxHighlighter(BaseSyntaxHighlighter):
     KEYWORDS = ['if', 'elif', 'else', 'for', 'while', 'import', 'from', 'class', 'def', 'self', 'or', 'and', 'not',
                 'in', 'lambda', 'match', 'case', 'break', 'continue', 'return', 'True', 'False', 'None', 'pass', 'with',
-                'as']
+                'as', 'is']
     RESERVED_NAMES_KEYWORDS = ['print', '__init__', 'str', 'int', 'float', 'bool', 'input']
 
     def parse_code(self, lines_of_code):

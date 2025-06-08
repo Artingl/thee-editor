@@ -7,6 +7,7 @@ import json
 from importlib import reload
 from component import *
 from editor import *
+from font import draw_text
 
 pygame.init()
 
@@ -39,18 +40,20 @@ class HotreloadWatchdog:
 
 
 class EditorApplication:
-    def __init__(self, caption: str = "Unnamed", config_path: str = "config.json"):
-        self.window = pygame.display.set_mode((800, 600), pygame.RESIZABLE)
+    def __init__(self, caption: str = "theeditor", config_path: str = "config.json"):
+        self.config = {}
+        self.config_last_save = time.time()
+        self.config_path = config_path
+        self.load_config()
+        
+        size = self.get_config_value("main", "window_dimensions", default=[900, 560])
+        self.window = pygame.display.set_mode(size, pygame.RESIZABLE)
         self.timer = pygame.time.Clock()
         self.running = True
         self.is_restarting = False
         self.caption = caption
         self.components = []
-        self.fps = 30
-        self.config = {}
-        self.config_last_save = time.time()
-        self.config_path = config_path
-        self.load_config()
+        self.fps = 60
 
         self.editor = Editor(self)
         self.add_component(self.editor)
@@ -108,10 +111,26 @@ class EditorApplication:
 
     def update_frame(self):
         self.window.fill((0, 0, 0))
-
         for i in self.components:
             i.draw_frame()
             i.update(1 / self.fps)
+
+        if self.get_config_value("main", "debug", default=False):
+            text_size = self.get_config_value("editor", "text_size", default=1)
+            debug_text = f"FPS: {round(self.timer.get_fps(), 1)}\n" + \
+                         f"W: {self.window.get_width()}; H: {self.window.get_height()}\n" + \
+                         "\n" + \
+                         f"Opened file: '{self.editor.filename}'\n" + \
+                         f"Mode: {self.editor.mode.value}"
+            # Draw debug text
+            draw_text(
+                self.window,
+                debug_text,
+                (255, 255, 255),
+                (120, 20, 20),
+                40, 40,
+                pixel_size=(text_size, text_size)
+            )
 
     def process_events(self):
         for event in pygame.event.get():
@@ -126,6 +145,8 @@ class EditorApplication:
         while self.running:
             self.process_events()
             self.update_frame()
+
+            self.store_config_value("main", "window_dimensions", [self.window.get_width(), self.window.get_height()])
             
             # Save config every second
             if self.config_last_save < time.time():
@@ -133,16 +154,19 @@ class EditorApplication:
                 self.save_config()
 
             pygame.display.flip()
-            pygame.display.set_caption(f"{self.caption} - FPS: {round(self.timer.get_fps(), 1)}")
+            pygame.display.set_caption(self.caption)
             self.timer.tick(self.fps)
         pygame.quit()
 
 
 if __name__ == "__main__":
-    application = EditorApplication("theeditor")
+    application = EditorApplication()
     application.run_loop()
 
     if application.is_restarting:
         os.execv(sys.executable, ['python'] + sys.argv)
     else:
         sys.exit(0)
+
+
+

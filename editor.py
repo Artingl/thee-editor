@@ -30,6 +30,12 @@ class EditorMode(Enum):
 
 
 class EditorStatusbar(Component):
+    MODE_SIGNS = {
+        EditorMode.COMMAND: 'C',
+        EditorMode.INSERT: 'I',
+        EditorMode.COMMAND_INSERT: 'CI',
+    }
+
     def __init__(self, app, editor):
         super().__init__(
             app,
@@ -65,10 +71,8 @@ class EditorStatusbar(Component):
     def draw_frame(self):
         status_bar_background_color = (0, 0, 0)
         status_bar_color = (255, 255, 255)
-        status_bar_text = f"Mode: {self.editor.mode.value}; {self.editor.filename} ({self.editor.file_type})"
-        if self.editor.mode == EditorMode.INSERT:
-            status_bar_background_color = (100, 100, 190)
-        
+        status_bar_text = f"{self.editor.filename} ({self.editor.file_type}); {self.editor.caret_position[1] + 1} line at {self.editor.caret_position[0]}"
+
         if self.editor.mode == EditorMode.COMMAND_INSERT:
             status_bar_text = f":{self.editor.command_insert_value}"
             self.status_bar_text_timeout = 0
@@ -77,13 +81,38 @@ class EditorStatusbar(Component):
             status_bar_color = self.status_bar_text_color
             status_bar_background_color = self.status_bar_text_background
 
+        if self.editor.mode == EditorMode.INSERT:
+            status_bar_background_color = (100, 100, 190)
+
+        # Draw current editor mode with a separator
+        draw_text(
+            self.surface,
+            EditorStatusbar.MODE_SIGNS[self.editor.mode],
+            (255, 255, 255),
+            (0, 0, 0),
+            0, 0,
+            pixel_size=(self.editor.text_size, self.editor.text_size)
+        )
+        pygame.draw.rect(
+            self.surface,
+            (255, 255, 255),
+            ((self.editor.lines_indicator_x_offset - 4) * self.editor.text_size, 0,
+            int(1.5 * self.editor.text_size), FONT_SIZE[1] * self.editor.text_size)
+        )
+        # Draw status bar
         draw_text(
             self.surface,
             status_bar_text,
             status_bar_color,
             status_bar_background_color,
-            0, 0,
+            self.editor.lines_indicator_x_offset, 0,
             (self.editor.text_size, self.editor.text_size)
+        )
+        
+        pygame.draw.rect(
+            self.surface,
+            (170, 170, 170),
+            (0, 0, self.get_width(), 1)
         )
 
         return super().draw_frame()
@@ -154,6 +183,31 @@ class ReloadCommand(Command):
         self.status_bar.display_text("Successfully reloaded")
 
 
+class ConfigCommand(Command):
+    DATA_TYPES = {
+        'int': int,
+        'bool': lambda x: x.lower() == 'true',
+        'float': float,
+        'str': str,
+    }
+
+    def execute(self, cmd, args):
+        example = "config key.param = value type[int/bool/float/str]"
+        if len(args) < 4 or args[3] not in ConfigCommand.DATA_TYPES or args[1] != '=':
+            self.status_bar.display_text(f"Command accepts exactly 4 arguments: '{example}'", background=(255, 0, 0))
+            return
+        config_key_param = args[0].split(".")
+        if len(config_key_param) != 2:
+            self.status_bar.display_text(f"Key/param value must be separated with a dot: '{example}'", background=(255, 0, 0))
+            return
+
+        previous_value = self.application.get_config_value(config_key_param[0], config_key_param[1])
+        new_value = ConfigCommand.DATA_TYPES[args[3]](args[2])
+
+        self.application.store_config_value(config_key_param[0], config_key_param[1], new_value)
+        self.status_bar.display_text(f"Updated value for {args[0]}; previous: '{previous_value}', new: '{new_value}'")
+
+
 class CommandExecutor:
     def __init__(self, editor):
         self.editor = editor
@@ -167,9 +221,12 @@ class CommandExecutor:
             ('reload'): ReloadCommand(self),
             ('new'): NewCommand(self),
             ('shell'): ShellCommand(self),
+            ('config'): ConfigCommand(self),
         }
     
     def repeat_last_search(self):
+        if not self.last_successful_search_pattern:
+            return
         command = self.last_successful_search_pattern
         if not self.editor.find_first_pattern(command):
             self.last_successful_search_pattern = None
@@ -177,8 +234,8 @@ class CommandExecutor:
         else:
             self.last_successful_search_pattern = command
 
-    def execute(self, command):
-        command, *args = shlex.split(command)
+    def execute(self, text):
+        command, *args = shlex.split(text, posix=False)
 
         # If the command is just a number, go to that line number
         if command.isdigit():
@@ -193,11 +250,11 @@ class CommandExecutor:
                     instance.execute(command, args)
                     return
             # If unable to find the command with such name, try to use the command as a search pattern in the editor text
-            if not self.editor.find_first_pattern(command):
+            if not self.editor.find_first_pattern(text):
                 self.last_successful_search_pattern = None
-                self.status_bar.display_text(f"Unable to find '{command}'", background=(255, 0, 0))
+                self.status_bar.display_text(f"Unable to find '{text}'", background=(255, 0, 0))
             else:
-                self.last_successful_search_pattern = command
+                self.last_successful_search_pattern = text
         
             # self.status_bar.display_text(f"Invalid command!", background=(255, 0, 0))
 
@@ -209,9 +266,9 @@ class Editor(Component):
         self.file_type = "text file"
         self.base_lines_of_text = [""]
         self.token_lines = []
-        self.text_size = 1
-        self.scroll_offset = 4
-        self.caret_width = 1
+        self.text_size = self.application.get_config_value("editor", "text_size", default=1)
+        self.scroll_offset = 5
+        self.caret_width = 2
         self.caret_height = FONT_SIZE[1]
         self.syntax_highlighter = BaseSyntaxHighlighter(self)
 
@@ -225,8 +282,9 @@ class Editor(Component):
         self.caret_animation_speed = 6
         self.is_unsaved = False
         self.caret_blink_animation_flag = False
-        self.editor_type_delay = 0
+        self.editor_update_delay = 0
         self.editor_current_pressed_key = [None, None, None]
+        self.editor_previous_pressed_key = [None, None, None]
         self.lines_indicator_x_offset = 0
         self.current_y_line_offset = 0
         self.previous_y_line_offset = 0
@@ -282,10 +340,9 @@ class Editor(Component):
 
     def open_file(self, filename):
         self.caret_position = self.application.get_config_value("last_caret_position", filename, default=[0, 0])
-        self.lines_indicator_x_offset, \
-            self.current_y_line_offset, \
+        self.current_y_line_offset, \
             self.previous_y_line_offset, \
-            self.last_x_caret_position = self.application.get_config_value("last_scroll_offset", filename, default=[0, 0, 0, 0])
+            self.last_x_caret_position = self.application.get_config_value("last_scroll_offset", filename, default=[0, 0, 0])
         self.filename = filename
         self.update_syntax_highlighter(filename)
 
@@ -320,27 +377,29 @@ class Editor(Component):
         return super().reload()
 
     def update(self, dt):
-        # Save current caret position in config
-        self.application.store_config_value("last_caret_position", self.filename, self.caret_position)
-
-        # Also the scroll offset
-        self.application.store_config_value(
-            "last_scroll_offset", self.filename,
-            [self.lines_indicator_x_offset,
-             self.current_y_line_offset,
-             self.previous_y_line_offset,
-             self.last_x_caret_position]
-        )
-
         self.caret_blink_animation += dt * self.caret_animation_speed
-        self.editor_type_delay -= dt
+        self.editor_update_delay -= dt
         if self.caret_blink_animation > 2:
             self.caret_blink_animation_flag = not self.caret_blink_animation_flag
             self.caret_blink_animation = 0
         
-        if self.editor_type_delay <= 0:
+        if self.editor_update_delay <= 0:
             self.update_editor(*self.editor_current_pressed_key)
-            self.editor_type_delay = 0.02
+            self.editor_update_delay = 0.02
+
+            # Save current text size
+            self.application.store_config_value("editor", "text_size", self.text_size)
+
+            # Save current caret position in config
+            self.application.store_config_value("last_caret_position", self.filename, self.caret_position)
+
+            # Also the scroll offset
+            self.application.store_config_value(
+                "last_scroll_offset", self.filename,
+                [self.current_y_line_offset,
+                self.previous_y_line_offset,
+                self.last_x_caret_position]
+            )
         
         return super().update(dt)
 
@@ -381,11 +440,18 @@ class Editor(Component):
 
         if key == pygame.K_LEFT:
             self.caret_position[0] -= 1
-            self.caret_position[0] = max(min(self.caret_position[0], len(self.base_lines_of_text[self.caret_position[1]])), 0)
+            if self.caret_position[0] < 0:
+                self.caret_position[1] = max(self.caret_position[1] - 1, 0)
+                self.caret_position[0] = len(self.base_lines_of_text[self.caret_position[1]])
             self.last_x_caret_position = self.caret_position[0]
         elif key == pygame.K_RIGHT:
             self.caret_position[0] += 1
-            self.caret_position[0] = max(min(self.caret_position[0], len(self.base_lines_of_text[self.caret_position[1]])), 0)
+            if self.caret_position[0] > len(line_text):
+                if self.caret_position[1] + 1 < len(self.base_lines_of_text):
+                    self.caret_position[0] = 0
+                    self.caret_position[1] += 1
+                else:
+                    self.caret_position[0] -= 1
             self.last_x_caret_position = self.caret_position[0]
         elif key == pygame.K_UP:
             self.caret_position[1] -= 1
@@ -403,19 +469,37 @@ class Editor(Component):
                 self.save_file()
                 self.status_bar.display_text(f"Saved file as {self.filename}")
                 skip_letter_insert = True
-        if key == pygame.K_v:
-            # Paste from clipboard if the 'v' letter is pressed and in command mode OR if a modifier is pressed
-            if self.mode == EditorMode.COMMAND or  (key_modifier & pygame.KMOD_CTRL or key_modifier & pygame.KMOD_LMETA):
-                is_text_updated = True
-                skip_letter_insert = True
-                text = pyperclip.paste()
-                self.insert_at_current_caret(text)
-                self.status_bar.display_text("Pasted text")
-                print(f"Pasted text: {text}")
+        # Paste from clipboard if the 'v' letter is pressed and a modifier is pressed
+        # or if just 'p' is pressed in COMMAND mode
+        if (key == pygame.K_v and (key_modifier & pygame.KMOD_CTRL or key_modifier & pygame.KMOD_LMETA)) or (key == pygame.K_p and self.mode == EditorMode.COMMAND):
+            is_text_updated = True
+            skip_letter_insert = True
+            text = pyperclip.paste()
+            self.insert_at_current_caret(text)
+            self.status_bar.display_text("Pasted text")
             
         # If 'r' letter is pressed and in command mode, repeat the last successful text search in the editor
         if key == pygame.K_r and self.mode == EditorMode.COMMAND:
             self.command_executor.repeat_last_search()
+        # If 'o' letter is pressed and in command mode, insert new empty line below
+        elif key == pygame.K_o and self.mode == EditorMode.COMMAND:
+            skip_letter_insert = True
+            is_text_updated = True
+            self.caret_position[0] = 0
+            self.caret_position[1] += 1
+            self.base_lines_of_text.insert(self.caret_position[1], '')
+            self.mode = EditorMode.INSERT
+        # If double 'd' letter is pressed and in command mode, cut current line and put it in clipboard.
+        # Or if a combination ctrl + x is pressed
+        elif (key == pygame.K_d and self.editor_previous_pressed_key[0] == pygame.K_d and self.mode == EditorMode.COMMAND) or \
+            (key == pygame.K_x and (key_modifier & pygame.KMOD_CTRL or key_modifier & pygame.KMOD_LMETA)):
+            skip_letter_insert = True
+            is_text_updated = True
+            cut_text = "\n" + self.base_lines_of_text.pop(self.caret_position[1])
+            self.status_bar.display_text("Cut text")
+            pyperclip.copy(cut_text)
+            self.caret_position[1] = max(self.caret_position[1] - 1, 0)
+            self.caret_position[0] = len(self.base_lines_of_text[self.caret_position[1]])
         
         # Key combinations for increasing/decreasing scale of the text
         if key == pygame.K_EQUALS and (key_modifier & pygame.KMOD_CTRL or key_modifier & pygame.KMOD_LMETA):
@@ -489,12 +573,13 @@ class Editor(Component):
                 self.caret_position[0] -= 1
                 self.caret_position[0] = max(min(self.caret_position[0], len(self.base_lines_of_text[self.caret_position[1]])), 0)
                 self.last_x_caret_position = self.caret_position[0]
-        elif unicode.isalpha() or is_allowed_nonalpha_chars(unicode) and len(unicode) >= 1 and not skip_letter_insert:
-            if self.mode == EditorMode.INSERT:
-                is_text_updated = True
-                line_text = self.insert_at_current_caret(unicode)
-            elif self.mode == EditorMode.COMMAND_INSERT:
-                self.command_insert_value += unicode
+        elif unicode.isalpha() or is_allowed_nonalpha_chars(unicode) and len(unicode) >= 1:
+            if not skip_letter_insert:
+                if self.mode == EditorMode.INSERT:
+                    is_text_updated = True
+                    line_text = self.insert_at_current_caret(unicode)
+                elif self.mode == EditorMode.COMMAND_INSERT:
+                    self.command_insert_value += unicode
         
         # If text was updated, parse it again
         if is_text_updated:
@@ -523,6 +608,12 @@ class Editor(Component):
     def insert_at_current_caret(self, text):
         line_text = self.base_lines_of_text[self.caret_position[1]]
         for char in text:
+            if char == "\n":
+                self.caret_position[0] = 0
+                self.caret_position[1] += 1
+                self.base_lines_of_text.append("")
+                continue
+
             # Type the text into the editor lines
             self.base_lines_of_text[self.caret_position[1]] = line_text = line_text[:self.caret_position[0]] + char + line_text[self.caret_position[0]:]
             self.caret_position[0] += 1
@@ -540,14 +631,18 @@ class Editor(Component):
 
     def propagate_event(self, event):
         if event.type == pygame.KEYDOWN:
+            if self.editor_current_pressed_key[0] is not None:
+                self.editor_previous_pressed_key = self.editor_current_pressed_key
             self.editor_current_pressed_key = [event.key, event.unicode, event.mod]
             self.update_editor(*self.editor_current_pressed_key)
-            self.editor_type_delay = 0.3
+            self.editor_update_delay = 0.3
         if event.type == pygame.KEYUP:
+            self.editor_previous_pressed_key = self.editor_current_pressed_key
             self.editor_current_pressed_key = [None, None, None]
         if event.type == pygame.VIDEORESIZE:
             self.surface = pygame.Surface((event.w, event.h - FONT_SIZE[1] * self.text_size))
             self.cache_lines_surface = pygame.Surface((event.w, event.h - FONT_SIZE[1] * self.text_size))
+            self.forcefully_update_editor = 4
 
         return super().propagate_event(event)
 
@@ -556,7 +651,7 @@ class Editor(Component):
 
     def draw_frame(self):
         # Calculate amount of lines that can fit the height of the editor surface
-        amount_of_lines_surf_height = self.get_amount_of_lines_surf_height()
+        amount_of_lines_surf_height = self.get_amount_of_lines_surf_height() - 1
 
         # Calculate the offset of lines that should be displayed on the screen based on current caret Y
         y_line_offset = self.caret_position[1] - amount_of_lines_surf_height
@@ -581,8 +676,43 @@ class Editor(Component):
         # Draw the lines of text
         new_lines_indicator_width = 1
 
+        # Draw line numbers indicator on the left
+        for line_number, tokens in enumerate(lines_to_draw):
+            y_offset = line_number * FONT_SIZE[1] * self.text_size
+            line_number += self.current_y_line_offset
+            line_indicator_color = (170, 170, 170)
+
+            if line_number == self.caret_position[1]:
+                line_indicator_color = (255, 255, 255)
+
+            # Draw the line indicator
+            line_indicator_len = ((self.lines_indicator_x_offset - 4) * self.text_size) // FONT_SIZE[0] * self.text_size
+            line_indicator_text = str(line_number + 1)
+            line_indicator_text = " " * (line_indicator_len - len(line_indicator_text)) + line_indicator_text
+            line_indicator_width, _ = draw_text(
+                self.surface,
+                line_indicator_text,
+                line_indicator_color,
+                (0, 0, 0),
+                0, y_offset,
+                pixel_size=(self.text_size, self.text_size)
+            )
+            pygame.draw.rect(
+                self.surface,
+                line_indicator_color,
+                ((self.lines_indicator_x_offset - 4) * self.text_size, y_offset,
+                int(1.5 * self.text_size), FONT_SIZE[1] * self.text_size)
+            )
+
+            # Dynamically update the lines indicator offset based on the width of the line number string
+            line_indicator_width += 5
+            if line_indicator_width > new_lines_indicator_width:
+                new_lines_indicator_width = line_indicator_width
+                if self.lines_indicator_x_offset == 0:
+                    self.lines_indicator_x_offset = new_lines_indicator_width
+
         # Only redraw the lines if they has updated
-        if True or self.previous_lines_to_draw != lines_to_draw or self.forcefully_update_editor > 0:
+        if self.previous_lines_to_draw != lines_to_draw or self.forcefully_update_editor > 0:
             self.forcefully_update_editor -= 1
             self.forcefully_update_editor = max(self.forcefully_update_editor, 0)
             self.cache_lines_surface.fill((0, 0, 0))
@@ -590,34 +720,6 @@ class Editor(Component):
             for line_number, tokens in enumerate(lines_to_draw):
                 x_offset = 0
                 y_offset = line_number * FONT_SIZE[1] * self.text_size
-                line_number += self.current_y_line_offset
-                line_indicator_color = (170, 170, 170)
-
-                if line_number == self.caret_position[1]:
-                    line_indicator_color = (255, 255, 255)
-
-                # Draw the line indicator
-                line_indicator_width, _ = draw_text(
-                    self.cache_lines_surface,
-                    f"{line_number + 1}",
-                    line_indicator_color,
-                    (0, 0, 0),
-                    0, y_offset,
-                    pixel_size=(self.text_size, self.text_size)
-                )
-                pygame.draw.rect(
-                    self.cache_lines_surface,
-                    line_indicator_color,
-                    ((self.lines_indicator_x_offset - 4) * self.text_size, y_offset,
-                    int(1.5 * self.text_size), FONT_SIZE[1] * self.text_size)
-                )
-
-                # Dynamically update the lines indicator offset based on the width of the line number string
-                line_indicator_width += 5
-                if line_indicator_width > new_lines_indicator_width:
-                    new_lines_indicator_width = line_indicator_width
-                    if self.lines_indicator_x_offset == 0:
-                        self.lines_indicator_x_offset = new_lines_indicator_width
 
                 for token in tokens:
                     line = token
@@ -632,7 +734,7 @@ class Editor(Component):
                         self.cache_lines_surface,
                         line,
                         color, background,
-                        self.lines_indicator_x_offset * self.text_size + x_offset, y_offset,
+                        x_offset, y_offset,
                         pixel_size=(self.text_size, self.text_size),
                     )
                     x_offset += offset * self.text_size
@@ -640,7 +742,7 @@ class Editor(Component):
             self.lines_indicator_x_offset = new_lines_indicator_width
 
         # Draw the lines
-        self.surface.blit(self.cache_lines_surface, (0, 0))
+        self.surface.blit(self.cache_lines_surface, (self.lines_indicator_x_offset * self.text_size, 0))
 
         # Draw the caret at its current position
         if self.caret_blink_animation_flag:
@@ -654,6 +756,3 @@ class Editor(Component):
 
         return super().draw_frame()
 
-        
-
-        
