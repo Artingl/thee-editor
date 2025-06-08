@@ -5,11 +5,11 @@ import os
 import json
 import builtins
 import logging
+import pyperclip
 
 from importlib import reload
-from component import *
-from editor import *
-from font import draw_text
+from engine.shell import EditorViewportComponent
+from utils import draw_text, FONT_SIZE
 
 pygame.init()
 
@@ -93,11 +93,11 @@ class EditorApplication:
         self.components = []
         self.fps = 30
 
-        self.editor = Editor(self)
-        self.add_component(self.editor)
+        self.buffer_component = EditorViewportComponent(self)
+        self.add_component(self.buffer_component)
 
-        import main, component, editor, font, syntax_highlighter
-        self.hotreload = HotreloadWatchdog(main, component, editor, font, syntax_highlighter)
+        # TODO: implement proper reload
+        # self.hotreload = HotreloadWatchdog(main, component, editor_component, font, syntax_highlighter)
         
     def close(self):
         self.logger.info("Closing...")
@@ -163,8 +163,8 @@ class EditorApplication:
             debug_text = f"FPS: {round(self.timer.get_fps(), 1)}\n" + \
                          f"W: {self.get_width()}; H: {self.get_height()}\n" + \
                          "\n" + \
-                         f"Opened file: '{self.editor.filename}'\n" + \
-                         f"Mode: {self.editor.mode.value}"
+                         f"Opened file: '{self.buffer_component.filename}'\n" + \
+                         f"Mode: {self.buffer_component.mode.value}"
             # Draw debug text
             draw_text(
                 self.window,
@@ -201,8 +201,8 @@ class EditorApplication:
             if event.type == pygame.QUIT:
                 self.running = False
             if event.type == pygame.VIDEORESIZE:
-                char_w = FONT_SIZE[0] * self.editor.text_size
-                char_h = FONT_SIZE[1] * self.editor.text_size
+                char_w = FONT_SIZE[0] * self.buffer_component.text_size
+                char_h = FONT_SIZE[1] * self.buffer_component.text_size
                 self.window = pygame.display.set_mode((event.w // char_w * char_w, event.h // char_h * char_h), pygame.RESIZABLE)
             for i in self.components:
                 i.propagate_event(event)
@@ -226,6 +226,9 @@ class EditorApplication:
 
 
 if __name__ == "__main__":
+    # Call the method once, so the pyperclip module initializes
+    pyperclip.paste()
+
     application = EditorApplication()
     application.run_loop()
 
