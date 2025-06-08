@@ -3,6 +3,8 @@ import sys
 import time
 import os
 import json
+import builtins
+import logging
 
 from importlib import reload
 from component import *
@@ -39,8 +41,44 @@ class HotreloadWatchdog:
         return False
 
 
+class LoggerHandler(logging.Handler):
+    def __init__(self, application):
+        super().__init__()
+        self.application = application
+        self.original_print = print
+        self.log_history = []
+        
+        builtins.print = self.__print_wrapper
+            
+    def get_log_history(self):
+        return self.log_history
+
+    def emit(self, record):
+        msg = self.format(record)
+        self.log_history.append(msg[:80] + ("..." if len(msg) > 80 else ""))
+        self.log_history = self.log_history[-20:]
+
+    def __print_wrapper(self, text, *args, **kwargs):
+        # TODO: implement kwargs
+        text = str(text)
+        log_history_text = ' '.join([text] + [str(i) for i in args])
+        if len(log_history_text) > 80:
+            log_history_text = log_history_text[:80] + "..."
+        self.log_history.append(log_history_text)
+        self.log_history = self.log_history[-20:]
+        self.original_print(text, *args, **kwargs)
+
+
 class EditorApplication:
     def __init__(self, caption: str = "theeditor", config_path: str = "config.json"):
+        self.logger_handler = LoggerHandler(self)
+
+        self.logger = logging.getLogger()
+        self.logger.setLevel(logging.DEBUG)
+        self.logger.addHandler(self.logger_handler)
+
+        self.logger.info("Initialing the app")
+
         self.config = {}
         self.config_last_save = time.time()
         self.config_path = config_path
@@ -53,7 +91,7 @@ class EditorApplication:
         self.is_restarting = False
         self.caption = caption
         self.components = []
-        self.fps = 60
+        self.fps = 30
 
         self.editor = Editor(self)
         self.add_component(self.editor)
@@ -62,18 +100,22 @@ class EditorApplication:
         self.hotreload = HotreloadWatchdog(main, component, editor, font, syntax_highlighter)
         
     def close(self):
+        self.logger.info("Closing...")
         self.running = False
         self.save_config()
 
     def restart(self):
+        self.logger.info("Restarting...")
         self.running = False
         self.is_restarting = True
         self.save_config()
 
     def reload(self):
+        self.logger.info("Reloading in progress...")
         if self.hotreload.try_to_reload():
             for i in self.components:
                 i.reload()
+        self.logger.info("Successfully reloaded!")
 
     def save_config(self):
         with open(self.config_path, "w") as file:
@@ -83,6 +125,7 @@ class EditorApplication:
         if os.path.isfile(self.config_path):
             with open(self.config_path, "r") as file:
                 self.config = json.load(file)
+            self.logger.info(f"Loaded {len(self.config)} entries from config")
     
     def store_config_value(self, key, param, value):
         if key not in self.config:
@@ -118,7 +161,7 @@ class EditorApplication:
         if self.get_config_value("main", "debug", default=False):
             text_size = self.get_config_value("editor", "text_size", default=1)
             debug_text = f"FPS: {round(self.timer.get_fps(), 1)}\n" + \
-                         f"W: {self.window.get_width()}; H: {self.window.get_height()}\n" + \
+                         f"W: {self.get_width()}; H: {self.get_height()}\n" + \
                          "\n" + \
                          f"Opened file: '{self.editor.filename}'\n" + \
                          f"Mode: {self.editor.mode.value}"
@@ -132,12 +175,35 @@ class EditorApplication:
                 pixel_size=(text_size, text_size)
             )
 
+            # Draw debug logs
+            log_messages = self.logger_handler.get_log_history()
+            logs_y_offset = self.get_height() - FONT_SIZE[1] * text_size * (4 + len(log_messages))
+            draw_text(
+                self.window,
+                "LOGS:",
+                (255, 255, 255),
+                (120, 20, 20),
+                40, logs_y_offset,
+                pixel_size=(text_size, text_size)
+            )
+            logs_y_offset += FONT_SIZE[1] * text_size
+            draw_text(
+                self.window,
+                '\n'.join(log_messages),
+                (255, 255, 255),
+                (120, 20, 20),
+                40, logs_y_offset,
+                pixel_size=(text_size, text_size)
+            )
+
     def process_events(self):
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 self.running = False
             if event.type == pygame.VIDEORESIZE:
-                self.window = pygame.display.set_mode((event.w, event.h), pygame.RESIZABLE)
+                char_w = FONT_SIZE[0] * self.editor.text_size
+                char_h = FONT_SIZE[1] * self.editor.text_size
+                self.window = pygame.display.set_mode((event.w // char_w * char_w, event.h // char_h * char_h), pygame.RESIZABLE)
             for i in self.components:
                 i.propagate_event(event)
     

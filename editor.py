@@ -176,15 +176,19 @@ class ShellCommand(Command):
         # TODO: implement a better way to execute shell commands
         output = os.popen(' '.join(args)).read()
         output = output.strip()
-        output = output.replace("\n", "\\n")
-        if output:
-            self.status_bar.display_text(output)
+        print(output)
 
 
 class ReloadCommand(Command):
     def execute(self, cmd, args):
         self.application.reload()
         self.status_bar.display_text("Successfully reloaded")
+
+
+class EvalCommand(Command):
+    def execute(self, cmd, args):
+        if args:
+            eval(' '.join(args))
 
 
 class ConfigCommand(Command):
@@ -226,6 +230,7 @@ class CommandExecutor:
             ('new'): NewCommand(self),
             ('shell'): ShellCommand(self),
             ('config'): ConfigCommand(self),
+            ('eval'): EvalCommand(self),
         }
     
     def repeat_last_search(self):
@@ -244,8 +249,8 @@ class CommandExecutor:
         # If the command is just a number, go to that line number
         if command.isdigit():
             command = int(command)
-            if command <= 0 or command > len(self.editor.base_lines_of_text):
-                self.status_bar.display_text(f"Invalid line! Available range: 1...{len(self.editor.base_lines_of_text)}", background=(255, 0, 0))
+            if command <= 0 or command > len(self.editor.base_lines):
+                self.status_bar.display_text(f"Invalid line! Available range: 1...{len(self.editor.base_lines)}", background=(255, 0, 0))
             else:
                 self.editor.set_caret_line(command)
         else:
@@ -268,7 +273,7 @@ class Editor(Component):
         super().__init__(app, (app.get_width(), app.get_height() - FONT_SIZE[1]))
         self.filename = "unnamed.txt"
         self.file_type = "text file"
-        self.base_lines_of_text = [""]
+        self.base_lines = [""]
         self.token_lines = []
         self.text_size = self.application.get_config_value("editor", "text_size", default=1)
         self.scroll_offset = 5
@@ -295,20 +300,23 @@ class Editor(Component):
         self.cut_shortcut_count = 0
         
         self.mode = EditorMode.COMMAND
+        self.command_insert_history = []
+        self.command_insert_history_index = 0
+        self.command_insert_value = ""
+        self.command_insert_value_saved = ""
 
         self.status_bar = EditorStatusbar(app, self)
         self.command_executor = CommandExecutor(self)
         self.add_child_component(self.status_bar)
 
-        self.command_insert_value = ""
-        self.token_lines = self.syntax_highlighter.parse_code(self.base_lines_of_text)
+        self.token_lines = self.syntax_highlighter.parse_code(self.base_lines)
 
         last_opened_file = app.get_config_value("editor", "last_opened_file")
         if last_opened_file:
             self.open_file(last_opened_file)
 
     @classmethod
-    def __get_whitespaces(self, line):
+    def __get_whitespaces_count(self, line):
         whitespaces_count = 0
         for i in line:
             if i == ' ':
@@ -352,8 +360,8 @@ class Editor(Component):
 
         if not os.path.isfile(filename):
             # Open it as a new file
-            self.base_lines_of_text = [""]
-            self.token_lines = self.syntax_highlighter.parse_code(self.base_lines_of_text)
+            self.base_lines = [""]
+            self.token_lines = self.syntax_highlighter.parse_code(self.base_lines)
             self.application.remove_config_value("editor", "last_opened_file")
             return
 
@@ -362,12 +370,12 @@ class Editor(Component):
 
     def load_file(self):
         with open(self.filename, "r") as file:
-            self.base_lines_of_text = file.read().split("\n")
-            self.token_lines = self.syntax_highlighter.parse_code(self.base_lines_of_text)
+            self.base_lines = file.read().split("\n")
+            self.token_lines = self.syntax_highlighter.parse_code(self.base_lines)
 
     def save_file(self):
         with open(self.filename, "w") as file:
-            file.write('\n'.join(self.base_lines_of_text))
+            file.write('\n'.join(self.base_lines))
         self.is_unsaved = False
 
         # Re-open the file, because we might have saved a new file.
@@ -376,7 +384,7 @@ class Editor(Component):
 
     def reload(self):
         self.forcefully_update_editor = 4
-        self.token_lines = self.syntax_highlighter.parse_code(self.base_lines_of_text)
+        self.token_lines = self.syntax_highlighter.parse_code(self.base_lines)
         
         return super().reload()
 
@@ -413,7 +421,7 @@ class Editor(Component):
 
         is_text_updated = False
         skip_letter_insert = False
-        line_text = self.base_lines_of_text[self.caret_position[1]]
+        line_text = self.base_lines[self.caret_position[1]]
         self.caret_blink_animation = 0
         self.caret_blink_animation_flag = True
 
@@ -429,11 +437,13 @@ class Editor(Component):
         elif self.mode == EditorMode.COMMAND and unicode == ':':
             self.mode = EditorMode.COMMAND_INSERT
             self.command_insert_value = ""
+            self.command_insert_history_index = 0
             return
         # Execute command if in inset command mode and pressed return
         elif self.mode == EditorMode.COMMAND_INSERT and key == pygame.K_RETURN:
             self.mode = EditorMode.COMMAND
             self.command_executor.execute(self.command_insert_value)
+            self.command_insert_history.append(self.command_insert_value)
             self.command_insert_value = ""
             return
         # Change to the insert mode if 'i' letter or 'insert' key is pressed and in command mode
@@ -441,31 +451,46 @@ class Editor(Component):
             self.mode = EditorMode.INSERT
             # Skip this key press, so we won't accidentally type it into the editor
             return
-
-        if key == pygame.K_LEFT:
-            self.caret_position[0] -= 1
-            if self.caret_position[0] < 0:
-                self.caret_position[1] = max(self.caret_position[1] - 1, 0)
-                self.caret_position[0] = len(self.base_lines_of_text[self.caret_position[1]])
-            self.last_x_caret_position = self.caret_position[0]
-        elif key == pygame.K_RIGHT:
-            self.caret_position[0] += 1
-            if self.caret_position[0] > len(line_text):
-                if self.caret_position[1] + 1 < len(self.base_lines_of_text):
-                    self.caret_position[0] = 0
-                    self.caret_position[1] += 1
-                else:
-                    self.caret_position[0] -= 1
-            self.last_x_caret_position = self.caret_position[0]
-        elif key == pygame.K_UP:
-            self.caret_position[1] -= 1
-            self.caret_position[1] = max(min(self.caret_position[1], len(self.base_lines_of_text) - 1), 0)
-            self.caret_position[0] = min(self.last_x_caret_position, len(self.base_lines_of_text[self.caret_position[1]]))
-        elif key == pygame.K_DOWN:
-            self.caret_position[1] += 1
-            self.caret_position[1] = max(min(self.caret_position[1], len(self.base_lines_of_text) - 1), 0)
-            self.caret_position[0] = min(self.last_x_caret_position, len(self.base_lines_of_text[self.caret_position[1]]))
         
+        if self.mode != EditorMode.COMMAND_INSERT:
+            # Move caret using arrows
+            if key == pygame.K_LEFT:
+                self.caret_position[0] -= 1
+                if self.caret_position[0] < 0:
+                    self.caret_position[1] = max(self.caret_position[1] - 1, 0)
+                    self.caret_position[0] = len(self.base_lines[self.caret_position[1]])
+                self.last_x_caret_position = self.caret_position[0]
+            elif key == pygame.K_RIGHT:
+                self.caret_position[0] += 1
+                if self.caret_position[0] > len(line_text):
+                    if self.caret_position[1] + 1 < len(self.base_lines):
+                        self.caret_position[0] = 0
+                        self.caret_position[1] += 1
+                    else:
+                        self.caret_position[0] -= 1
+                self.last_x_caret_position = self.caret_position[0]
+            elif key == pygame.K_UP:
+                self.caret_position[1] -= 1
+                self.caret_position[1] = max(min(self.caret_position[1], len(self.base_lines) - 1), 0)
+                self.caret_position[0] = min(self.last_x_caret_position, len(self.base_lines[self.caret_position[1]]))
+            elif key == pygame.K_DOWN:
+                self.caret_position[1] += 1
+                self.caret_position[1] = max(min(self.caret_position[1], len(self.base_lines) - 1), 0)
+                self.caret_position[0] = min(self.last_x_caret_position, len(self.base_lines[self.caret_position[1]]))
+        else:
+            # Scroll through commands history using arrows for command_insert mode
+            if key == pygame.K_UP and self.command_insert_history_index + 1 <= len(self.command_insert_history):
+                if self.command_insert_history_index == 0:
+                    self.command_insert_value_saved = self.command_insert_value
+                self.command_insert_history_index += 1
+                self.command_insert_value = self.command_insert_history[-self.command_insert_history_index]
+            elif key == pygame.K_DOWN and self.command_insert_history_index - 1 >= 0:
+                if self.command_insert_history_index - 1 == 0:
+                    self.command_insert_value = self.command_insert_value_saved
+                self.command_insert_history_index -= 1
+                if self.command_insert_history_index > 0:
+                    self.command_insert_value = self.command_insert_history[-self.command_insert_history_index]
+
         # Check if a key combination was pressed
         if key == pygame.K_s:
             # Save the file if the 's' letter is pressed and in command mode OR if a modifier is pressed
@@ -486,28 +511,43 @@ class Editor(Component):
         if key == pygame.K_r and self.mode == EditorMode.COMMAND:
             self.command_executor.repeat_last_search()
         # If 'o' letter is pressed and in command mode, insert new empty line below
-        elif key == pygame.K_o and self.mode == EditorMode.COMMAND:
+        if key == pygame.K_o and self.mode == EditorMode.COMMAND:
+            # Add the same amount of whitespaces to the new line
+            whitespaces = Editor.__get_whitespaces_count(self.base_lines[self.caret_position[1]])
             skip_letter_insert = True
             is_text_updated = True
-            self.caret_position[0] = 0
             self.caret_position[1] += 1
-            self.base_lines_of_text.insert(self.caret_position[1], '')
+            self.base_lines.insert(self.caret_position[1], "")
+            self.base_lines[self.caret_position[1]] += " " * whitespaces
+            self.caret_position[0] = len(self.base_lines[self.caret_position[1]])
             self.mode = EditorMode.INSERT
         # If double 'd' letter is pressed and in command mode, cut current line and put it in clipboard.
         # Or if a combination ctrl + x is pressed
-        elif (key == pygame.K_d and self.mode == EditorMode.COMMAND) or \
+        if (key == pygame.K_d and self.mode == EditorMode.COMMAND) or \
             (key == pygame.K_x and (key_modifier & pygame.KMOD_CTRL or key_modifier & pygame.KMOD_LMETA)):
             if key == pygame.K_x or self.cut_shortcut_count >= 1:
                 skip_letter_insert = True
                 is_text_updated = True
-                cut_text = self.base_lines_of_text.pop(self.caret_position[1]) + "\n"
+                cut_text = self.base_lines.pop(self.caret_position[1]) + "\n"
                 self.status_bar.display_text(f"Cut line at {self.caret_position[1]}")
                 pyperclip.copy(cut_text)
-                self.caret_position[1] = min(self.caret_position[1], len(self.base_lines_of_text) - 1)
+                self.caret_position[1] = min(self.caret_position[1], len(self.base_lines) - 1)
                 self.caret_position[0] = 0
                 self.cut_shortcut_count = 0
             else:
                 self.cut_shortcut_count += 1
+         
+        # TODO: fix modifier keys, they are not reported correctly when arrow key is pressed
+        # If 'w' letter is pressed and in command mode, skip to next literal.
+        # Or if a combination ctrl + right_arrow is pressed
+        if (key == pygame.K_w and self.mode == EditorMode.COMMAND) or \
+            (key == pygame.K_RIGHT and (key_modifier & pygame.KMOD_CTRL or key_modifier & pygame.KMOD_LMETA)):
+            self.step_next_literal()
+        # If 'b' letter is pressed and in command mode, skip to previous literal.
+        # Or if a combination ctrl + left_arrow is pressed
+        if (key == pygame.K_b and self.mode == EditorMode.COMMAND) or \
+            (key == pygame.K_LEFT and (key_modifier & pygame.KMOD_CTRL or key_modifier & pygame.KMOD_LMETA)):
+            self.step_previous_literal()
 
         # Key combinations for increasing/decreasing scale of the text
         if key == pygame.K_EQUALS and (key_modifier & pygame.KMOD_CTRL or key_modifier & pygame.KMOD_LMETA):
@@ -525,38 +565,38 @@ class Editor(Component):
                 is_text_updated = True
 
                 # Add the same amount of whitespaces as on the previous line
-                whitespaces = Editor.__get_whitespaces(self.base_lines_of_text[self.caret_position[1]])
+                whitespaces = Editor.__get_whitespaces_count(self.base_lines[self.caret_position[1]])
 
                 # Extract part of the line that we'd need to place on a new line.
                 # Also remove it from the line we were on
-                line_part = self.base_lines_of_text[self.caret_position[1]][self.caret_position[0]:]
-                self.base_lines_of_text[self.caret_position[1]] = self.base_lines_of_text[self.caret_position[1]][:self.caret_position[0]]
+                line_part = self.base_lines[self.caret_position[1]][self.caret_position[0]:]
+                self.base_lines[self.caret_position[1]] = self.base_lines[self.caret_position[1]][:self.caret_position[0]]
 
                 # Add a new line with the splitted part
-                self.base_lines_of_text.insert(self.caret_position[1] + 1, whitespaces * " " + line_part)
+                self.base_lines.insert(self.caret_position[1] + 1, whitespaces * " " + line_part)
 
                 self.caret_position[0] = whitespaces
                 self.caret_position[1] += 1
             else:
                 # Just step further to the next line if in command mode (the same as pressing down arrow)
                 self.caret_position[1] += 1
-                self.caret_position[1] = max(min(self.caret_position[1], len(self.base_lines_of_text) - 1), 0)
-                self.caret_position[0] = min(self.last_x_caret_position, len(self.base_lines_of_text[self.caret_position[1]]))
+                self.caret_position[1] = max(min(self.caret_position[1], len(self.base_lines) - 1), 0)
+                self.caret_position[0] = min(self.last_x_caret_position, len(self.base_lines[self.caret_position[1]]))
         elif key == pygame.K_DELETE:
             if self.mode == EditorMode.INSERT:
                 # Remove the character after the caret if in insert mode
                 is_text_updated = True
 
                 # If the caret is in the end of the line and we have a line below, connect it with the previous one
-                if self.caret_position[0] == len(line_text) and self.caret_position[1] < len(self.base_lines_of_text) - 1:
-                    self.base_lines_of_text[self.caret_position[1]] += self.base_lines_of_text.pop(self.caret_position[1] + 1)
+                if self.caret_position[0] == len(line_text) and self.caret_position[1] < len(self.base_lines) - 1:
+                    self.base_lines[self.caret_position[1]] += self.base_lines.pop(self.caret_position[1] + 1)
                 # If the caret is not in the end of the line, just remove a letter
                 else:
-                    self.base_lines_of_text[self.caret_position[1]] = line_text[:self.caret_position[0]] + line_text[self.caret_position[0] + 1:]
+                    self.base_lines[self.caret_position[1]] = line_text[:self.caret_position[0]] + line_text[self.caret_position[0] + 1:]
             elif self.mode == EditorMode.COMMAND:
                 # Just step further in the line if in command mode (the same as pressing right arrow)
                 self.caret_position[0] += 1
-                self.caret_position[0] = max(min(self.caret_position[0], len(self.base_lines_of_text[self.caret_position[1]])), 0)
+                self.caret_position[0] = max(min(self.caret_position[0], len(self.base_lines[self.caret_position[1]])), 0)
                 self.last_x_caret_position = self.caret_position[0]
         elif key == pygame.K_BACKSPACE:
             if self.mode == EditorMode.INSERT:
@@ -566,12 +606,12 @@ class Editor(Component):
                 # If the caret is not in the beginning of the line, just remove a letter
                 if self.caret_position[0] > 0:
                     self.caret_position[0] -= 1
-                    self.base_lines_of_text[self.caret_position[1]] = line_text[:self.caret_position[0]] + line_text[self.caret_position[0] + 1:]
+                    self.base_lines[self.caret_position[1]] = line_text[:self.caret_position[0]] + line_text[self.caret_position[0] + 1:]
                 # Connect two lines otherwise
                 elif self.caret_position[1] > 0:
-                    self.caret_position[0] = len(self.base_lines_of_text[self.caret_position[1] - 1])
-                    self.base_lines_of_text[self.caret_position[1] - 1] += self.base_lines_of_text[self.caret_position[1]]
-                    self.base_lines_of_text.pop(self.caret_position[1])
+                    self.caret_position[0] = len(self.base_lines[self.caret_position[1] - 1])
+                    self.base_lines[self.caret_position[1] - 1] += self.base_lines[self.caret_position[1]]
+                    self.base_lines.pop(self.caret_position[1])
                     self.caret_position[1] -= 1
             elif self.mode == EditorMode.COMMAND_INSERT:
                 # Remove the last character from the command insert value
@@ -579,7 +619,7 @@ class Editor(Component):
             elif self.mode == EditorMode.COMMAND:
                 # Just step further in the line if in command mode (the same as pressing left arrow)
                 self.caret_position[0] -= 1
-                self.caret_position[0] = max(min(self.caret_position[0], len(self.base_lines_of_text[self.caret_position[1]])), 0)
+                self.caret_position[0] = max(min(self.caret_position[0], len(self.base_lines[self.caret_position[1]])), 0)
                 self.last_x_caret_position = self.caret_position[0]
         elif unicode.isalpha() or is_allowed_nonalpha_chars(unicode) and len(unicode) >= 1:
             if not skip_letter_insert:
@@ -592,11 +632,49 @@ class Editor(Component):
         # If text was updated, parse it again
         if is_text_updated:
             self.is_unsaved = True
-            self.token_lines = self.syntax_highlighter.parse_code(self.base_lines_of_text)
+            self.token_lines = self.syntax_highlighter.parse_code(self.base_lines)
     
+    def parse_token(self, token, color=(255, 255, 255), background=(0, 0, 0)):
+        result = token
+        if result.__class__ != str:
+            result = token.value
+            color = token.color
+            background = token.background
+        return result, color, background
+
+    def step_next_literal(self):
+        line_x_offset = 0
+        for token in self.token_lines[self.caret_position[1]]:
+            token, _, _ = self.parse_token(token)
+            line_x_offset += len(token)
+            if line_x_offset > self.caret_position[0] and token != " ":
+                self.caret_position[0] = line_x_offset
+                return
+        
+        if self.caret_position[0] < line_x_offset:
+            self.caret_position[0] = line_x_offset
+        else:
+            self.caret_position[0] = 0
+            self.caret_position[1] = min(self.caret_position[1] + 1, len(self.base_lines) - 1)
+
+    def step_previous_literal(self):
+        line_x_offset = len(self.base_lines[self.caret_position[1]])
+        for token in self.token_lines[self.caret_position[1]][::-1]:
+            token, _, _ = self.parse_token(token)
+            line_x_offset -= len(token)
+            if line_x_offset < self.caret_position[0] and token != " ":
+                self.caret_position[0] = line_x_offset
+                return
+
+        if self.caret_position[0] > 0:
+            self.caret_position[0] = 0
+        else:
+            self.caret_position[1] = max(self.caret_position[1] - 1, 0)
+            self.caret_position[0] = len(self.base_lines[self.caret_position[1]])
+
     def find_first_pattern(self, pattern):
         """Searches for first appearance in the code after current caret position"""
-        for idx, line in enumerate(self.base_lines_of_text[self.caret_position[1]:]):
+        for idx, line in enumerate(self.base_lines[self.caret_position[1]:]):
             if (position := line.find(pattern)) != -1 and [position, idx + self.caret_position[1]] != self.caret_position:
                 self.caret_position[0] = position
                 self.caret_position[1] += idx
@@ -604,7 +682,7 @@ class Editor(Component):
                 return True
 
         # If couldn't find after caret, try to find from the beginning of the text
-        for idx, line in enumerate(self.base_lines_of_text):
+        for idx, line in enumerate(self.base_lines):
             if (position := line.find(pattern)) != -1 and [position, idx] != self.caret_position:
                 self.caret_position[0] = position
                 self.caret_position[1] = idx
@@ -614,26 +692,26 @@ class Editor(Component):
         return False
 
     def insert_at_current_caret(self, text):
-        line_text = self.base_lines_of_text[self.caret_position[1]]
+        line_text = self.base_lines[self.caret_position[1]]
         for char in text:
             if char == "\n":
-                line_after_caret = self.base_lines_of_text[self.caret_position[1]][self.caret_position[0]:]
-                self.base_lines_of_text[self.caret_position[1]] = line_text = line_text[:self.caret_position[0]]
+                line_after_caret = self.base_lines[self.caret_position[1]][self.caret_position[0]:]
+                self.base_lines[self.caret_position[1]] = line_text = line_text[:self.caret_position[0]]
                 self.caret_position[0] = 0
                 self.caret_position[1] += 1
-                self.base_lines_of_text.insert(self.caret_position[1], line_after_caret)
+                self.base_lines.insert(self.caret_position[1], line_after_caret)
                 continue
 
             # Type the text into the editor lines
-            self.base_lines_of_text[self.caret_position[1]] = line_text = line_text[:self.caret_position[0]] + char + line_text[self.caret_position[0]:]
+            self.base_lines[self.caret_position[1]] = line_text = line_text[:self.caret_position[0]] + char + line_text[self.caret_position[0]:]
             self.caret_position[0] += 1
         return line_text
     
     def set_caret_line(self, line):
         line -= 1
-        if 0 <= line < len(self.base_lines_of_text):
+        if 0 <= line < len(self.base_lines):
             self.caret_position[1] = line
-            self.caret_position[0] = len(self.base_lines_of_text[self.caret_position[1]])
+            self.caret_position[0] = len(self.base_lines[self.caret_position[1]])
             self.center_caret_on_screen()
     
     def center_caret_on_screen(self):
@@ -641,24 +719,28 @@ class Editor(Component):
 
     def propagate_event(self, event):
         if event.type == pygame.KEYDOWN:
-            self.editor_current_pressed_key = [event.key, event.unicode, event.mod]
+            self.editor_current_pressed_key = [event.key, event.unicode, pygame.key.get_mods()]
             self.update_editor(*self.editor_current_pressed_key)
             self.editor_update_delay = 0.3
         if event.type == pygame.KEYUP:
             self.editor_current_pressed_key = [None, None, None]
         if event.type == pygame.VIDEORESIZE:
-            self.surface = pygame.Surface((event.w, event.h - FONT_SIZE[1] * self.text_size))
-            self.cache_lines_surface = pygame.Surface((event.w, event.h - FONT_SIZE[1] * self.text_size))
+            self.surface = pygame.Surface((self.application.get_width(), self.application.get_height() - FONT_SIZE[1] * self.text_size))
+            self.cache_lines_surface = pygame.Surface((self.application.get_width(), self.application.get_height() - FONT_SIZE[1] * self.text_size))
             self.forcefully_update_editor = 4
 
         return super().propagate_event(event)
 
     def get_amount_of_lines_surf_height(self):
         return round(self.surface.get_height() / (FONT_SIZE[1] * self.text_size))
+    
+    def get_amount_of_lines_surf_width(self):
+        return round(self.surface.get_width() / (FONT_SIZE[0] * self.text_size))
 
     def draw_frame(self):
         # Calculate amount of lines that can fit the height of the editor surface
         amount_of_lines_surf_height = self.get_amount_of_lines_surf_height() - 1
+        amount_of_lines_surf_width = self.get_amount_of_lines_surf_width() - 1
 
         # Calculate the offset of lines that should be displayed on the screen based on current caret Y
         y_line_offset = self.caret_position[1] - amount_of_lines_surf_height
@@ -671,7 +753,7 @@ class Editor(Component):
         # And if we'd not go over the total amount of lines
         elif y_line_offset + self.scroll_offset > self.current_y_line_offset \
                 and y_line_offset > self.previous_y_line_offset \
-                and self.current_y_line_offset + amount_of_lines_surf_height + 1 < len(self.base_lines_of_text):
+                and self.current_y_line_offset + amount_of_lines_surf_height + 1 < len(self.base_lines):
             self.current_y_line_offset += 1
         elif y_line_offset > self.current_y_line_offset:
             self.current_y_line_offset = max(y_line_offset, 0)
@@ -719,23 +801,26 @@ class Editor(Component):
                     self.lines_indicator_x_offset = new_lines_indicator_width
 
         # Only redraw the lines if they has updated
-        if self.previous_lines_to_draw != lines_to_draw or self.forcefully_update_editor > 0:
+        line_x_offset = max(int(self.caret_position[0] - amount_of_lines_surf_width * 0.8), 0)
+        # TODO: fix the condition below, so we don't redraw the whole text every frame
+        if True or self.previous_lines_to_draw != lines_to_draw or self.forcefully_update_editor > 0:
             self.forcefully_update_editor -= 1
             self.forcefully_update_editor = max(self.forcefully_update_editor, 0)
             self.cache_lines_surface.fill((0, 0, 0))
             self.previous_lines_to_draw = lines_to_draw
             for line_number, tokens in enumerate(lines_to_draw):
+                total_line_length = 0
                 x_offset = 0
                 y_offset = line_number * FONT_SIZE[1] * self.text_size
 
                 for token in tokens:
-                    line = token
-                    color = (255, 255, 255)
-                    background = (0, 0, 0)
-                    if token.__class__ != str:
-                        line = token.value
-                        color = token.color
-                        background = token.background
+                    line, color, background = self.parse_token(token, (255, 255, 255), (0, 0, 0))
+                    line_length = len(line)
+                    if total_line_length < line_x_offset:
+                        line = line[line_x_offset - total_line_length:]
+                    total_line_length += line_length
+                    if not line:
+                        continue
                     # Draw the line
                     offset, _ = draw_text(
                         self.cache_lines_surface,
@@ -756,7 +841,7 @@ class Editor(Component):
             pygame.draw.rect(
                 self.surface,
                 (255, 255, 255),
-                (self.caret_position[0] * FONT_SIZE[0] * self.text_size + self.lines_indicator_x_offset * self.text_size,
+                ((self.caret_position[0] - line_x_offset) * FONT_SIZE[0] * self.text_size + self.lines_indicator_x_offset * self.text_size,
                  self.caret_position[1] * FONT_SIZE[1] * self.text_size + FONT_SIZE[1] * self.text_size - self.caret_height * self.text_size - self.current_y_line_offset * FONT_SIZE[1] * self.text_size,
                 self.caret_width * self.text_size, self.caret_height * self.text_size)
             )
