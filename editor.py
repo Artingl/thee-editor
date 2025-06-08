@@ -174,7 +174,11 @@ class NewCommand(Command):
 class ShellCommand(Command):
     def execute(self, cmd, args):
         # TODO: implement a better way to execute shell commands
-        os.system(' '.join(args))
+        # os.system(' '.join(args))
+        output = os.popen(' '.join(args)).read()
+        output = output.replace("\n", "\\n")
+        if output:
+            self.status_bar.display_text(output)
 
 
 class ReloadCommand(Command):
