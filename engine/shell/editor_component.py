@@ -56,9 +56,6 @@ class EditorViewportComponent(BufferViewportComponent):
             self.token_lines = self.syntax_highlighter.parse_code(self.base_lines)
 
     def save_file(self):
-        if not self.is_unsaved:
-            return
-
         with open(self.filename, "w") as file:
             file.write('\n'.join(self.base_lines))
         self.is_unsaved = False

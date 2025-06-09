@@ -72,7 +72,7 @@ class LoggerHandler(logging.Handler):
 
 
 class EditorApplication:
-    def __init__(self, caption: str = "theeditor", config_path: str = "config.json"):
+    def __init__(self, caption: str = "thee editor", config_path: str = "config.json"):
         self.logger_handler = LoggerHandler(self)
 
         self.logger = logging.getLogger()
