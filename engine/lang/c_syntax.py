@@ -1,4 +1,5 @@
 from .syntax_highlighter import *
+from ..shell import BufferToken
 
 
 class CSyntaxHighlighter(BaseSyntaxHighlighter):
@@ -63,11 +64,11 @@ class CSyntaxHighlighter(BaseSyntaxHighlighter):
                     # it'll fetch the other one on next call to self.next_char()
                     tokens, is_end = self.parse_singleline_comment('/')
                 else:
-                    tokens = [Token(char, BASE_COLOR, (0, 0, 0), is_new_line=is_new_line)]
+                    tokens = [BufferToken(char, BASE_COLOR, (0, 0, 0), is_new_line=is_new_line)]
             else:
-                tokens = [Token(char, BASE_COLOR, (0, 0, 0), is_new_line=is_new_line)]
+                tokens = [BufferToken(char, BASE_COLOR, (0, 0, 0), is_new_line=is_new_line)]
         else:
             char, is_end, is_new_line = self.next_char()
-            tokens = [Token(char, BASE_COLOR, (0, 0, 0), is_new_line=is_new_line)]
+            tokens = [BufferToken(char, BASE_COLOR, (0, 0, 0), is_new_line=is_new_line)]
 
         return tokens, is_end

@@ -8,7 +8,9 @@ import logging
 import pyperclip
 
 from importlib import reload
-from engine.shell import EditorViewportComponent
+from component import VStackComponent
+from engine.command import CommandExecutor
+from engine.shell import EditorViewportComponent, Statusbar, BufferMode
 from utils import draw_text, FONT_SIZE
 
 pygame.init()
@@ -91,14 +93,34 @@ class EditorApplication:
         self.is_restarting = False
         self.caption = caption
         self.components = []
+        self.key_down_timeout = 0
+        self.key_down = [None, None, None]
         self.fps = 30
 
-        self.buffer_component = EditorViewportComponent(self)
-        self.add_component(self.buffer_component)
+        self.status_bar = Statusbar(self)
+        self.add_component(self.status_bar)
+
+        self.command_executor = CommandExecutor(self)
+        self.add_component(self.command_executor)
+
+        self.buffers_stack = VStackComponent(self, (0, 0))
+        self.add_component(self.buffers_stack)
+
+        self.buffers_stack.add_child_component(EditorViewportComponent(self))
+        # self.buffer_component = EditorViewportComponent(self)
 
         # TODO: implement proper reload
         # self.hotreload = HotreloadWatchdog(main, component, editor_component, font, syntax_highlighter)
-        
+
+    def get_focused_buffer_viewport(self):
+        return self.buffers_stack.get_focused_component()
+
+    def get_command_executor(self):
+        return self.command_executor
+
+    def get_text_scale(self) -> int:
+        return self.get_config_value("main", "text_scale", default=1)
+
     def close(self):
         self.logger.info("Closing...")
         self.running = False
@@ -152,19 +174,35 @@ class EditorApplication:
     def add_component(self, component):
         self.components.append(component)
 
+    def update(self, dt):
+        self.buffers_stack.update_dimensions(
+            (self.get_width(), self.get_height() - self.status_bar.get_height()),
+            (0, 0)
+        )
+
+        self.key_down_timeout -= dt
+        if self.key_down_timeout <= 0 and self.key_down[0]:
+            self.key_down_timeout = 0.02
+            for i in self.components:
+                i.key_pressed_event(*self.key_down)
+
+        for i in self.components:
+            i.update(dt)
+
     def update_frame(self):
         self.window.fill((0, 0, 0))
         for i in self.components:
-            i.draw_frame()
-            i.update(1 / self.fps)
+            i.draw_frame(self.window)
 
         if self.get_config_value("main", "debug", default=False):
-            text_size = self.get_config_value("editor", "text_size", default=1)
+            text_scale = self.get_config_value("main", "text_scale", default=1)
+            # debug_text = f"FPS: {round(self.timer.get_fps(), 1)}\n" + \
+            #              f"W: {self.get_width()}; H: {self.get_height()}\n" + \
+            #              "\n" + \
+            #              f"Opened file: '{self.buffer_component.filename}'; Is Saved: {not self.buffer_component.is_unsaved}\n" + \
+            #              f"Mode: {self.buffer_component.mode.value}"
             debug_text = f"FPS: {round(self.timer.get_fps(), 1)}\n" + \
-                         f"W: {self.get_width()}; H: {self.get_height()}\n" + \
-                         "\n" + \
-                         f"Opened file: '{self.buffer_component.filename}'\n" + \
-                         f"Mode: {self.buffer_component.mode.value}"
+                         f"W: {self.get_width()}; H: {self.get_height()}\n"
             # Draw debug text
             draw_text(
                 self.window,
@@ -172,28 +210,28 @@ class EditorApplication:
                 (255, 255, 255),
                 (120, 20, 20),
                 40, 40,
-                pixel_size=(text_size, text_size)
+                pixel_size=(text_scale, text_scale)
             )
 
             # Draw debug logs
             log_messages = self.logger_handler.get_log_history()
-            logs_y_offset = self.get_height() - FONT_SIZE[1] * text_size * (4 + len(log_messages))
+            logs_y_offset = self.get_height() - FONT_SIZE[1] * text_scale * (4 + len(log_messages))
             draw_text(
                 self.window,
                 "LOGS:",
                 (255, 255, 255),
                 (120, 20, 20),
                 40, logs_y_offset,
-                pixel_size=(text_size, text_size)
+                pixel_size=(text_scale, text_scale)
             )
-            logs_y_offset += FONT_SIZE[1] * text_size
+            logs_y_offset += FONT_SIZE[1] * text_scale
             draw_text(
                 self.window,
                 '\n'.join(log_messages),
                 (255, 255, 255),
                 (120, 20, 20),
                 40, logs_y_offset,
-                pixel_size=(text_size, text_size)
+                pixel_size=(text_scale, text_scale)
             )
 
     def process_events(self):
@@ -201,15 +239,28 @@ class EditorApplication:
             if event.type == pygame.QUIT:
                 self.running = False
             if event.type == pygame.VIDEORESIZE:
-                char_w = FONT_SIZE[0] * self.buffer_component.text_size
-                char_h = FONT_SIZE[1] * self.buffer_component.text_size
+                text_scale = self.get_config_value("main", "text_scale", default=1)
+                char_w = FONT_SIZE[0] * text_scale
+                char_h = FONT_SIZE[1] * text_scale
                 self.window = pygame.display.set_mode((event.w // char_w * char_w, event.h // char_h * char_h), pygame.RESIZABLE)
+
             for i in self.components:
+                if event.type == pygame.KEYDOWN:
+                    i.key_down_event(*self.key_down)
+                    self.key_down_timeout = 0.2
+                    self.key_down = [event.key, "    " if event.key == pygame.K_TAB else event.unicode, pygame.key.get_mods()]
+                if event.type == pygame.KEYUP:
+                    i.key_up_event(*self.key_down)
+                    self.key_down_timeout = 0
+                    self.key_down = [None, None, None]
+                if event.type == pygame.MOUSEWHEEL:
+                    i.mouse_wheel_event(event.x, event.y)
                 i.propagate_event(event)
     
     def run_loop(self):
         while self.running:
             self.process_events()
+            self.update(1 / self.fps)
             self.update_frame()
 
             self.store_config_value("main", "window_dimensions", [self.window.get_width(), self.window.get_height()])

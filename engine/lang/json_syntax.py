@@ -1,4 +1,5 @@
 from .syntax_highlighter import *
+from ..shell import BufferToken
 
 
 class JsonSyntaxHighlighter(BaseSyntaxHighlighter):
@@ -45,6 +46,6 @@ class JsonSyntaxHighlighter(BaseSyntaxHighlighter):
             tokens, is_end = self.parse_literal(lambda x: not x.isdigit(), NUMBER_LITERAL_COLOR, skip_last_character=True)
         else:
             char, is_end, is_new_line = self.next_char()
-            tokens = [Token(char, BASE_COLOR, (0, 0, 0), is_new_line=is_new_line)]
+            tokens = [BufferToken(char, BASE_COLOR, (0, 0, 0), is_new_line=is_new_line)]
 
         return tokens, is_end

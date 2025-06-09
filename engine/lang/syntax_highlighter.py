@@ -1,6 +1,8 @@
 # Bullshit code is written here.
 # Wanted to make a PoC syntax highlighter, that's why it is so poorly written.
 
+from ..shell.buffer_component import BufferToken
+
 BASE_COLOR = (255, 255, 255)
 STRING_LITERAL_COLOR = (190, 140, 100)
 KEYWORD0_LITERAL_COLOR = (110, 110, 150)
@@ -57,16 +59,16 @@ class BaseSyntaxHighlighter:
         tokens = []
         text, is_end, is_new_line = self.next_char()
         if is_new_line:
-            tokens.append(Token(text, color, is_new_line=True))
+            tokens.append(BufferToken(text, color, is_new_line=True))
             text = ""
         elif is_end:
-            tokens.append(Token(text, color))
+            tokens.append(BufferToken(text, color))
             return tokens, True
         while True:
             char, is_end, is_new_line = self.next_char()
             text += char
             if is_new_line:
-                tokens.append(Token(text, color, is_new_line=True))
+                tokens.append(BufferToken(text, color, is_new_line=True))
                 text = ""
             if is_end or checker(char):
                 if skip_last_character and checker(char):
@@ -80,7 +82,7 @@ class BaseSyntaxHighlighter:
                     self.prev_char()
                 break
         if text or is_end:
-            tokens.append(Token(text, color, is_new_line=is_new_line))
+            tokens.append(BufferToken(text, color, is_new_line=is_new_line))
         return tokens, is_end
 
     def parse_singleline_comment(self, comment_sign=''):
@@ -88,30 +90,19 @@ class BaseSyntaxHighlighter:
         text, is_end, is_new_line = self.next_char()
         text = comment_sign + text
         if is_new_line or is_end:
-            tokens.append(Token(text, COMMENT_COLOR, is_new_line=True))
+            tokens.append(BufferToken(text, COMMENT_COLOR, is_new_line=True))
             return tokens, is_end
         while True:
             char, is_end, is_new_line = self.next_char()
             text += char
             if is_new_line:
-                tokens.append(Token(text, COMMENT_COLOR, is_new_line=True))
+                tokens.append(BufferToken(text, COMMENT_COLOR, is_new_line=True))
                 text = ""
             if is_end or is_new_line:
                 break
         if text or is_end:
-            tokens.append(Token(text, COMMENT_COLOR, is_new_line=is_new_line))
+            tokens.append(BufferToken(text, COMMENT_COLOR, is_new_line=is_new_line))
         return tokens, is_end
-
-
-class Token:
-    def __init__(self, value, color, background=(0, 0, 0), is_new_line=False):
-        self.value = value
-        self.color = color
-        self.background = background
-        self.is_new_line = is_new_line
-
-    def __repr__(self):
-        return f"Token[{self.value}, {self.color}, {self.background}, {self.is_new_line}]"
 
 
 def get_syntax_highlighter_for_filename(filename: str):
