@@ -38,12 +38,6 @@ class TerminalViewportComponent(BufferViewportComponent):
             thread.start()
 
         self.syntax_highlighter = BaseSyntaxHighlighter()
-        # self.token_lines = self.syntax_highlighter.parse_code(self.base_lines)
-        # TODO: implement a better way to execute shell commands
-        # output = os.popen(' '.join(args)).read()
-        # output = output.strip()
-        # for i in output.split("\n"):
-        #     print(i)
 
     def __enqueue_output(self, out):
         for c in iter(lambda: out.read1(), b""):
