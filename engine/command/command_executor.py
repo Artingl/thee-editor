@@ -253,7 +253,7 @@ class CommandExecutor(Component):
             return
     
         buffer_viewport = self.application.get_focused_buffer_viewport()
-        command, *args = shlex.split(text, posix=False)
+        command, *args = shlex.split(text, posix=True)
 
         # If the command is just a number, go to that line number
         if command.isdigit():
