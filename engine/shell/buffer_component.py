@@ -22,16 +22,17 @@ class BufferToken:
 
 
 class BufferViewportComponent(Component):
-    def __init__(self, app):
+    def __init__(self, app, enable_line_indicator=False):
         super().__init__(app)
         self.base_lines = [""]
         self.token_lines = []
-        self.text_scale = self.application.get_config_value("main", "text_scale", default=1)
+        self.text_scale = self.application.get_text_scale()
         self.scroll_offset = 5
         self.caret_width = 2
         self.caret_height = FONT_SIZE[1]
         self.buffer_id = None
         self.previous_mode = None
+        self.enable_line_indicator = enable_line_indicator
 
         self.previous_lines_to_draw = None
         self.cache_lines_surface = pygame.Surface((self.surface.get_width(), self.surface.get_height()))
@@ -62,8 +63,6 @@ class BufferViewportComponent(Component):
         if self.caret_blink_animation > 2:
             self.caret_blink_animation_flag = not self.caret_blink_animation_flag
             self.caret_blink_animation = 0
-        
-        self.application.store_config_value("main", "text_scale", self.text_scale)
 
         # Save current caret position in config
         if self.buffer_id:
@@ -90,13 +89,15 @@ class BufferViewportComponent(Component):
     def set_mode(self, mode):
         self.application.get_command_executor().set_mode(mode)
 
-    def handle_key_input(self, key, unicode, modifier, skip_letter_insert=False, is_text_updated=False):
+    def update_buffer(self, key, unicode, modifier, skip_letter_insert=False, is_text_updated=False):
         if self.previous_mode != self.get_mode():
             self.previous_mode = self.get_mode()
             return
 
         if not self.base_lines:
             self.base_lines.append("")
+        self.caret_blink_animation = 0
+        self.caret_blink_animation_flag = True
 
         self.caret_position[1] = max(min(self.caret_position[1], len(self.base_lines) - 1), 0)
         self.caret_position[0] = max(min(self.caret_position[0], len(self.base_lines[self.caret_position[1]])), 0)
@@ -127,11 +128,12 @@ class BufferViewportComponent(Component):
         # Key combinations for increasing/decreasing scale of the text
         if key == pygame.K_EQUALS and (modifier & pygame.KMOD_CTRL or modifier & pygame.KMOD_LMETA):
             if FONT_SIZE[1] * (self.text_scale + 3) < self.surface.get_height() * 0.2:
-                self.text_scale += 1
+                scale = self.application.get_text_scale() + 1
+                self.application.store_config_value("main", "text_scale", min(scale, 5))
             return
         elif key == pygame.K_MINUS and (modifier & pygame.KMOD_CTRL or modifier & pygame.KMOD_LMETA):
-            self.text_scale -= 1
-            self.text_scale = max(self.text_scale, 1)
+            scale = self.application.get_text_scale() - 1
+            self.application.store_config_value("main", "text_scale", max(scale, 1))
             return
         
         if self.get_mode() != BufferMode.COMMAND_INSERT and modifier == 0:
@@ -209,7 +211,6 @@ class BufferViewportComponent(Component):
         
         # If text was updated, parse it again
         if is_text_updated:
-            self.is_unsaved = True
             self.token_lines = self.generate_tokens()
 
     def parse_token(self, token, color=(255, 255, 255), background=(0, 0, 0)):
@@ -305,7 +306,7 @@ class BufferViewportComponent(Component):
         self.key_pressed_event(key, unicode, modifier)
 
     def key_pressed_event(self, key, unicode, modifier):
-        self.handle_key_input(key, unicode, modifier)
+        self.update_buffer(key, unicode, modifier)
 
     def mouse_wheel_event(self, x, y):
         # TODO: I need to reverse the scrolling direction.
@@ -351,39 +352,40 @@ class BufferViewportComponent(Component):
         new_lines_indicator_width = 1
 
         # Draw line numbers indicator on the left
-        for line_number, tokens in enumerate(lines_to_draw):
-            y_offset = line_number * FONT_SIZE[1] * self.text_scale
-            line_number += self.current_y_line_offset
-            line_indicator_color = (170, 170, 170)
+        if self.enable_line_indicator:
+            for line_number, tokens in enumerate(lines_to_draw):
+                y_offset = line_number * FONT_SIZE[1] * self.text_scale
+                line_number += self.current_y_line_offset
+                line_indicator_color = (170, 170, 170)
 
-            if line_number == self.caret_position[1]:
-                line_indicator_color = (255, 255, 255)
+                if line_number == self.caret_position[1]:
+                    line_indicator_color = (255, 255, 255)
 
-            # Draw the line indicator
-            line_indicator_len = ((self.lines_indicator_x_offset - 4) * self.text_scale) // FONT_SIZE[0] * self.text_scale
-            line_indicator_text = str(line_number + 1)
-            line_indicator_text = " " * (line_indicator_len - len(line_indicator_text)) + line_indicator_text
-            line_indicator_width, _ = draw_text(
-                self.surface,
-                line_indicator_text,
-                line_indicator_color,
-                (0, 0, 0),
-                0, y_offset,
-                pixel_size=(self.text_scale, self.text_scale)
-            )
-            pygame.draw.rect(
-                self.surface,
-                line_indicator_color,
-                ((self.lines_indicator_x_offset - 4) * self.text_scale, y_offset,
-                int(1.5 * self.text_scale), FONT_SIZE[1] * self.text_scale)
-            )
+                # Draw the line indicator
+                line_indicator_len = ((self.lines_indicator_x_offset - 4) * self.text_scale) // FONT_SIZE[0] * self.text_scale
+                line_indicator_text = str(line_number + 1)
+                line_indicator_text = " " * (line_indicator_len - len(line_indicator_text)) + line_indicator_text
+                line_indicator_width, _ = draw_text(
+                    self.surface,
+                    line_indicator_text,
+                    line_indicator_color,
+                    (0, 0, 0),
+                    0, y_offset,
+                    pixel_size=(self.text_scale, self.text_scale)
+                )
+                pygame.draw.rect(
+                    self.surface,
+                    line_indicator_color,
+                    ((self.lines_indicator_x_offset - 4) * self.text_scale, y_offset,
+                    int(1.5 * self.text_scale), FONT_SIZE[1] * self.text_scale)
+                )
 
-            # Dynamically update the lines indicator offset based on the width of the line number string
-            line_indicator_width += 5
-            if line_indicator_width > new_lines_indicator_width:
-                new_lines_indicator_width = line_indicator_width
-                if self.lines_indicator_x_offset == 0:
-                    self.lines_indicator_x_offset = new_lines_indicator_width
+                # Dynamically update the lines indicator offset based on the width of the line number string
+                line_indicator_width += 5
+                if line_indicator_width > new_lines_indicator_width:
+                    new_lines_indicator_width = line_indicator_width
+                    if self.lines_indicator_x_offset == 0:
+                        self.lines_indicator_x_offset = new_lines_indicator_width
 
         # Only redraw the lines if they has updated
         line_x_offset = max(int(self.caret_position[0] - amount_of_lines_surf_width * 0.8), 0)
@@ -419,7 +421,10 @@ class BufferViewportComponent(Component):
             self.lines_indicator_x_offset = new_lines_indicator_width
 
         # Draw the lines
-        self.surface.blit(self.cache_lines_surface, (self.lines_indicator_x_offset * self.text_scale, 0))
+        if self.enable_line_indicator:
+            self.surface.blit(self.cache_lines_surface, (self.lines_indicator_x_offset * self.text_scale, 0))
+        else:
+            self.surface.blit(self.cache_lines_surface, (0, 0))
 
         # Draw the caret at its current position
         if self.caret_blink_animation_flag and self.is_focused:

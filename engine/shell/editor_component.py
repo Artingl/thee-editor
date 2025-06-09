@@ -11,7 +11,7 @@ from .buffer_mode import BufferMode
 
 class EditorViewportComponent(BufferViewportComponent):
     def __init__(self, app):
-        super().__init__(app)
+        super().__init__(app, enable_line_indicator=True)
         self.filename = "unnamed.txt"
         self.file_type = "text file"
         self.is_unsaved = False
@@ -26,11 +26,6 @@ class EditorViewportComponent(BufferViewportComponent):
     def generate_tokens(self):
         return self.syntax_highlighter.parse_code(self.base_lines)
 
-    def propagate_event(self, event):
-        if event.type == pygame.VIDEORESIZE:
-            self.size = (self.application.get_width(), self.application.get_height() - FONT_SIZE[1] * self.text_scale)
-        return super().propagate_event(event)
-    
     def open_file(self, filename):
         self.buffer_id = f"editor_{filename}"
         self.caret_position = self.application.get_config_value("last_caret_position", self.buffer_id, default=[0, 0])
@@ -74,23 +69,21 @@ class EditorViewportComponent(BufferViewportComponent):
                 break
         return whitespaces_count
 
-    def handle_key_input(self, key, unicode, modifier):
+    def update_buffer(self, key, unicode, modifier):
         self.caret_position[1] = max(min(self.caret_position[1], len(self.base_lines) - 1), 0)
         self.caret_position[0] = max(min(self.caret_position[0], len(self.base_lines[self.caret_position[1]])), 0)
         is_text_updated = False
         skip_letter_insert = False
-        self.caret_blink_animation = 0
-        self.caret_blink_animation_flag = True
         
         # Save the file if the 's' letter is pressed and in command mode OR if a modifier is pressed
         if key == pygame.K_s:
-            if self.get_mode() == BufferMode.COMMAND or (modifier & pygame.KMOD_CTRL or modifier & pygame.KMOD_LMETA):
+            if self.get_mode() == BufferMode.COMMAND or (self.get_mode() == BufferMode.INSERT and (modifier & pygame.KMOD_CTRL or modifier & pygame.KMOD_LMETA)):
                 self.save_file()
                 self.get_status_bar().display_text(f"Saved file as {self.filename}")
                 skip_letter_insert = True
         # Paste from clipboard if the 'v' letter is pressed and a modifier is pressed
         # or if just 'p' is pressed in COMMAND mode
-        if (key == pygame.K_v and (modifier & pygame.KMOD_CTRL or modifier & pygame.KMOD_LMETA)) or (key == pygame.K_p and self.get_mode() == BufferMode.COMMAND):
+        if (key == pygame.K_v and self.get_mode() == BufferMode.INSERT and (modifier & pygame.KMOD_CTRL or modifier & pygame.KMOD_LMETA)) or (key == pygame.K_p and self.get_mode() == BufferMode.COMMAND):
             is_text_updated = True
             skip_letter_insert = True
             text = pyperclip.paste()
@@ -112,7 +105,7 @@ class EditorViewportComponent(BufferViewportComponent):
         # If double 'd' letter is pressed and in command mode, cut current line and put it in clipboard.
         # Or if a combination ctrl + x is pressed
         if (key == pygame.K_d and self.get_mode() == BufferMode.COMMAND) or \
-            (key == pygame.K_x and (modifier & pygame.KMOD_CTRL or modifier & pygame.KMOD_LMETA)):
+            (key == pygame.K_x and self.get_mode() == BufferMode.INSERT and (modifier & pygame.KMOD_CTRL or modifier & pygame.KMOD_LMETA)):
             if key == pygame.K_x or self.cut_shortcut_count >= 1:
                 skip_letter_insert = True
                 is_text_updated = True
@@ -142,5 +135,8 @@ class EditorViewportComponent(BufferViewportComponent):
 
             self.caret_position[0] = whitespaces
             self.caret_position[1] += 1
+        
+        if is_text_updated:
+            self.is_unsaved = True
 
-        return super().handle_key_input(key, unicode, modifier, skip_letter_insert, is_text_updated)
+        return super().update_buffer(key, unicode, modifier, skip_letter_insert, is_text_updated)

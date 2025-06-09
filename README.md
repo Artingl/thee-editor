@@ -5,6 +5,8 @@ A simple Vi-inspired graphical text editor, WIP.
  - Bitmap VGA font
  - Several modes with their own shortcuts
  - Multiple commands: open/close/shell/etc.
+ - Syntax highlighting (C/Json/Python)
+ - Splitted view of several panes at the same time
 
 # Screenshot
 ![](screenshot.png)

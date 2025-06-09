@@ -8,6 +8,7 @@ class VStackComponent(Component):
         super().__init__(app, position)
         self.focused_component = None
         self.current_focused_index = 0
+        self.height_modifier = []
 
     def add_child_component(self, component):
         if self.focused_component:
@@ -15,6 +16,7 @@ class VStackComponent(Component):
         self.focused_component = component
         component.is_focused = True
         self.current_focused_index = len(self.children)
+        self.height_modifier.append(1)
         self.update_stack()
         return super().add_child_component(component)
 
@@ -38,20 +40,46 @@ class VStackComponent(Component):
             self.focused_component = self.children[self.current_focused_index]
             self.focused_component.is_focused = True
 
+    def focus_extend(self, amount=0.2):
+        if self.focused_component:
+            self.height_modifier[self.current_focused_index] += amount
+
+            for idx in range(len(self.height_modifier)):
+                if idx != self.current_focused_index:
+                    self.height_modifier[idx] -= amount
+
+                if self.height_modifier[idx] > 3:
+                    self.height_modifier[idx] = 3
+
+    def focus_shrink(self, amount=0.2):
+        if self.focused_component:
+            self.height_modifier[self.current_focused_index] -= amount
+
+            for idx in range(len(self.height_modifier)):
+                if idx != self.current_focused_index:
+                    self.height_modifier[idx] += amount
+
+                if self.height_modifier[idx] < 0.6:
+                    self.height_modifier[idx] = 0.6
+
     def remove_focused(self):
         if self.focused_component and len(self.children) > 1:
             current_index = self.current_focused_index
             self.children.pop(current_index).cleanup()
+            self.height_modifier.pop(self.current_focused_index)
             self.focus_next()
 
     def update_stack(self):
         if not self.children:
             return
         
+        if len(self.height_modifier) == 1:
+            self.height_modifier[0] = 1
+
         y_offset = 0
-        component_height = self.get_height() // len(self.children)
-        for component in self.children:
-            component.update_dimensions((self.get_width(), component_height), (0, y_offset))
+        for idx, component in enumerate(self.children):
+            component_height = round((self.get_height() // len(self.children)) * self.height_modifier[idx])
+            component.update_dimensions((self.get_width() - 2, component_height - 2), (1, y_offset + 1))
             y_offset += component_height
 
     def draw(self):
@@ -60,7 +88,7 @@ class VStackComponent(Component):
             border_color = (120, 120, 120)
             if i.is_focused:
                 border_color = (255, 255, 255)
-            pygame.draw.rect(self.surface, border_color, (*i.position, i.get_width(), i.get_height()), 2)
+            pygame.draw.rect(self.surface, border_color, (*i.position, i.get_width(), i.get_height()), 1)
 
     def get_focused_component(self):
         return self.focused_component

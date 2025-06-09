@@ -72,7 +72,7 @@ class LoggerHandler(logging.Handler):
 
 
 class EditorApplication:
-    def __init__(self, caption: str = "thee editor", config_path: str = "config.json"):
+    def __init__(self, caption: str = "thee-editor", config_path: str = "config.json"):
         self.logger_handler = LoggerHandler(self)
 
         self.logger = logging.getLogger()
@@ -107,7 +107,6 @@ class EditorApplication:
         self.add_component(self.buffers_stack)
 
         self.buffers_stack.add_child_component(EditorViewportComponent(self))
-        # self.buffer_component = EditorViewportComponent(self)
 
         # TODO: implement proper reload
         # self.hotreload = HotreloadWatchdog(main, component, editor_component, font, syntax_highlighter)
@@ -122,11 +121,15 @@ class EditorApplication:
         return self.get_config_value("main", "text_scale", default=1)
 
     def close(self):
+        for i in self.components:
+            i.cleanup()
         self.logger.info("Closing...")
         self.running = False
         self.save_config()
 
     def restart(self):
+        for i in self.components:
+            i.cleanup()
         self.logger.info("Restarting...")
         self.running = False
         self.is_restarting = True
@@ -287,6 +290,3 @@ if __name__ == "__main__":
         os.execv(sys.executable, ['python'] + sys.argv)
     else:
         sys.exit(0)
-
-
-

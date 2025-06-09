@@ -75,13 +75,13 @@ class Statusbar(Component):
             Statusbar.MODE_SIGNS[command_executor.get_mode()],
             (255, 255, 255),
             (0, 0, 0),
-            (current_buffer.lines_indicator_x_offset - 4) * text_scale - (FONT_SIZE[0] + 2) * text_scale, 0,
+            (max(current_buffer.lines_indicator_x_offset, (FONT_SIZE[0] * 2 + 2) * text_scale) - 4) * text_scale - (FONT_SIZE[0] + 2) * text_scale, 0,
             pixel_size=(text_scale, text_scale)
         )
         pygame.draw.rect(
             self.surface,
             (255, 255, 255),
-            ((current_buffer.lines_indicator_x_offset - 4) * text_scale, 0,
+            ((max(current_buffer.lines_indicator_x_offset, (FONT_SIZE[0] * 2 + 2) * text_scale) - 4) * text_scale, 0,
             int(1.5 * text_scale), FONT_SIZE[1] * text_scale)
         )
         # Draw status bar
@@ -90,7 +90,7 @@ class Statusbar(Component):
             status_bar_text,
             status_bar_color,
             status_bar_background_color,
-            current_buffer.lines_indicator_x_offset, 0,
+            max(current_buffer.lines_indicator_x_offset, (FONT_SIZE[0] * 2 + 2) * text_scale), 0,
             (text_scale, text_scale)
         )
         

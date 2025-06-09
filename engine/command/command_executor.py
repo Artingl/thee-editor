@@ -5,6 +5,7 @@ import os
 from utils import *
 from component import Component
 from ..shell.editor_component import EditorViewportComponent
+from ..shell.terminal_component import TerminalViewportComponent
 from ..shell.buffer_mode import BufferMode
 
 
@@ -51,12 +52,10 @@ class SaveCommand(Command):
 
 class CloseRestartCommand(Command):
     def execute(self, cmd, args):
-        if not isinstance(self.buffer_viewport, EditorViewportComponent):
-            self.status_bar.display_text("Command must be called from with editor viewport being focused", background=(255, 0, 0))
-            return
-        if self.buffer_viewport.is_unsaved and (len(args) == 0 or args[0] != "!"):
-            self.status_bar.display_text(f"Current file is unsaved. Save it or type '{cmd} !'", background=(255, 0, 0))
-            return
+        if isinstance(self.buffer_viewport, EditorViewportComponent):
+            if self.buffer_viewport.is_unsaved and (len(args) == 0 or args[0] != "!"):
+                self.status_bar.display_text(f"Current file is unsaved. Save it or type '{cmd} !'", background=(255, 0, 0))
+                return
         if cmd == 'quit':
             self.application.close()
         elif cmd == 'exit' or cmd == 'close':
@@ -71,22 +70,19 @@ class CloseRestartCommand(Command):
 
 class NewCommand(Command):
     def execute(self, cmd, args):
+        buffer_viewport = self.buffer_viewport
         if not isinstance(self.buffer_viewport, EditorViewportComponent):
-            self.status_bar.display_text("Command must be called from with editor viewport being focused", background=(255, 0, 0))
-            return
+            buffer_viewport = EditorViewportComponent(self.application)
+            self.application.buffers_stack.add_child_component(buffer_viewport)
         filename = "unnamed.txt"
         if args:
             filename = args[0]
-        self.buffer_viewport.open_file(filename)
+        buffer_viewport.open_file(filename)
 
 
 class ShellCommand(Command):
     def execute(self, cmd, args):
-        # TODO: implement a better way to execute shell commands
-        output = os.popen(' '.join(args)).read()
-        output = output.strip()
-        for i in output.split("\n"):
-            print(i)
+        self.application.buffers_stack.add_child_component(TerminalViewportComponent(self.application, args))
 
 
 class ReloadCommand(Command):
@@ -178,12 +174,25 @@ class CommandExecutor(Component):
         self.key_pressed_event(key, unicode, modifier)
 
     def key_pressed_event(self, key, unicode, modifier):
+        # Focus shortcuts
         if (key == pygame.K_n and self.get_mode() == BufferMode.COMMAND) or \
             (key == pygame.K_DOWN and (modifier & pygame.KMOD_CTRL or modifier & pygame.KMOD_LMETA)):
             self.application.buffers_stack.focus_next()
         if (key == pygame.K_p and self.get_mode() == BufferMode.COMMAND) or \
             (key == pygame.K_UP and (modifier & pygame.KMOD_CTRL or modifier & pygame.KMOD_LMETA)):
             self.application.buffers_stack.focus_previous()
+        
+        # Height change shortcuts
+        # TODO: This is janky solution (the focus_extend, focus_shrink methods implementation as well).
+        #       Remake it someday.
+        if (key == pygame.K_UP and self.get_mode() == BufferMode.COMMAND and (modifier & pygame.KMOD_SHIFT)):
+            self.application.buffers_stack.focus_extend()
+        if (key == pygame.K_DOWN and self.get_mode() == BufferMode.COMMAND and (modifier & pygame.KMOD_SHIFT)):
+            self.application.buffers_stack.focus_shrink()
+
+        # Close shortcuts
+        if (key == pygame.K_x and self.get_mode() == BufferMode.COMMAND):
+            self.application.buffers_stack.remove_focused()
 
         if key == pygame.K_ESCAPE:
             self.mode = BufferMode.COMMAND
