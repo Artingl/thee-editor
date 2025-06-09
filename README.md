@@ -7,6 +7,8 @@ A simple Vi-inspired graphical text editor, WIP.
  - Multiple commands: open/close/shell/etc.
  - Syntax highlighting (C/Json/Python)
  - Splitted view of several panes at the same time
+ - Embedded terminal support
 
-# Screenshot
-![](screenshot.png)
+# Screenshots
+![](screenshots/screenshot1.png)
+![](screenshots/screenshot2.png)

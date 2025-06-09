@@ -67,7 +67,7 @@ class TerminalViewportComponent(BufferViewportComponent):
 
         try:
             code = self.pipe.wait(0)
-            if self.exit_code == -1:
+            if self.exit_code == -1 and self.read_queue.empty():
                 self.exit_code = code
                 self.output += f"\n\nProcess finished with exit code {self.exit_code}"
                 self.base_lines = self.output.split("\n")

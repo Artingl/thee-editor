@@ -140,9 +140,11 @@ class BufferViewportComponent(Component):
             # Move caret using arrows
             if key == pygame.K_LEFT:
                 self.caret_position[0] -= 1
-                if self.caret_position[0] < 0:
+                if self.caret_position[0] < 0 and self.caret_position[1] > 0:
                     self.caret_position[1] = max(self.caret_position[1] - 1, 0)
                     self.caret_position[0] = len(self.base_lines[self.caret_position[1]])
+                elif self.caret_position[0] < 0:
+                    self.caret_position[0] = 0                    
                 self.last_x_caret_position = self.caret_position[0]
             elif key == pygame.K_RIGHT:
                 self.caret_position[0] += 1

@@ -138,5 +138,6 @@ class EditorViewportComponent(BufferViewportComponent):
         
         if is_text_updated:
             self.is_unsaved = True
+            self.token_lines = self.generate_tokens()
 
         return super().update_buffer(key, unicode, modifier, skip_letter_insert, is_text_updated)

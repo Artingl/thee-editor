@@ -83,6 +83,7 @@ class NewCommand(Command):
 class ShellCommand(Command):
     def execute(self, cmd, args):
         self.application.buffers_stack.add_child_component(TerminalViewportComponent(self.application, args))
+        self.status_bar.display_text(f"Terminal spawned for command: {' '.join(args)}")
 
 
 class ReloadCommand(Command):
