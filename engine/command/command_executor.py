@@ -21,10 +21,10 @@ class Command:
 
 class OpenCommand(Command):
     def execute(self, cmd, args):
+        buffer_viewport = self.buffer_viewport
         if not isinstance(self.buffer_viewport, EditorViewportComponent):
-            self.status_bar.display_text("Command must be called from with editor viewport being focused", background=(255, 0, 0))
-            return
-
+            buffer_viewport = EditorViewportComponent(self.application)
+            self.application.buffers_stack.add_child_component(buffer_viewport)
         if len(args) == 0:
             self.status_bar.display_text("Provide file name 'open FILENAME'", background=(255, 0, 0))
             return
@@ -32,11 +32,11 @@ class OpenCommand(Command):
         if not os.path.isfile(args[0]):
             self.status_bar.display_text(f"File '{args[0]}' doesn't exist", background=(255, 0, 0))
             return
-        if self.buffer_viewport.is_unsaved and (len(args) == 1 or args[1] != "!"):
+        if buffer_viewport.is_unsaved and (len(args) == 1 or args[1] != "!"):
             self.status_bar.display_text(f"Current file is unsaved. Save it or type 'open FILENAME !'", background=(255, 0, 0))
             return
 
-        self.buffer_viewport.open_file(args[0])
+        buffer_viewport.open_file(args[0])
 
 
 class SaveCommand(Command):

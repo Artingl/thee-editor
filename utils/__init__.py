@@ -1,5 +1,4 @@
 
-from .font_renderer import draw_bitmap, draw_text
-from .font import FONT_SIZE
+from .font_driver import *
 from .keys import *
 from .strings import *

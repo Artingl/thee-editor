@@ -11,7 +11,7 @@ from importlib import reload
 from component import VStackComponent
 from engine.command import CommandExecutor
 from engine.shell import EditorViewportComponent, Statusbar, BufferMode
-from utils import draw_text, FONT_SIZE
+from utils import FontDriver, FontType
 
 pygame.init()
 
@@ -89,6 +89,7 @@ class EditorApplication:
         size = self.get_config_value("main", "window_dimensions", default=[900, 560])
         self.window = pygame.display.set_mode(size, pygame.RESIZABLE)
         self.timer = pygame.time.Clock()
+        self.font_driver = FontDriver(FontType(self.get_config_value("main", "font_type", default=FontType.BITMAP.value)))
         self.running = True
         self.is_restarting = False
         self.caption = caption
@@ -110,6 +111,9 @@ class EditorApplication:
 
         # TODO: implement proper reload
         # self.hotreload = HotreloadWatchdog(main, component, editor_component, font, syntax_highlighter)
+
+    def get_font_driver(self):
+        return self.font_driver
 
     def get_focused_buffer_viewport(self):
         return self.buffers_stack.get_focused_component()
@@ -178,6 +182,8 @@ class EditorApplication:
         self.components.append(component)
 
     def update(self, dt):
+        self.font_driver.change_font_type(FontType(self.get_config_value("main", "font_type", default=FontType.BITMAP.value)))
+
         self.buffers_stack.update_dimensions(
             (self.get_width(), self.get_height() - self.status_bar.get_height()),
             (0, 0)
@@ -193,6 +199,8 @@ class EditorApplication:
             i.update(dt)
 
     def update_frame(self):
+        font_size = self.get_font_driver().get_font_size()
+
         self.window.fill((0, 0, 0))
         for i in self.components:
             i.draw_frame(self.window)
@@ -207,7 +215,7 @@ class EditorApplication:
             debug_text = f"FPS: {round(self.timer.get_fps(), 1)}\n" + \
                          f"W: {self.get_width()}; H: {self.get_height()}\n"
             # Draw debug text
-            draw_text(
+            self.font_driver.draw_text(
                 self.window,
                 debug_text,
                 (255, 255, 255),
@@ -218,8 +226,8 @@ class EditorApplication:
 
             # Draw debug logs
             log_messages = self.logger_handler.get_log_history()
-            logs_y_offset = self.get_height() - FONT_SIZE[1] * text_scale * (4 + len(log_messages))
-            draw_text(
+            logs_y_offset = self.get_height() - font_size[1] * text_scale * (4 + len(log_messages))
+            self.font_driver.draw_text(
                 self.window,
                 "LOGS:",
                 (255, 255, 255),
@@ -227,8 +235,8 @@ class EditorApplication:
                 40, logs_y_offset,
                 pixel_size=(text_scale, text_scale)
             )
-            logs_y_offset += FONT_SIZE[1] * text_scale
-            draw_text(
+            logs_y_offset += font_size[1] * text_scale
+            self.font_driver.draw_text(
                 self.window,
                 '\n'.join(log_messages),
                 (255, 255, 255),
@@ -238,13 +246,15 @@ class EditorApplication:
             )
 
     def process_events(self):
+        font_size = self.get_font_driver().get_font_size()
+        
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 self.running = False
             if event.type == pygame.VIDEORESIZE:
                 text_scale = self.get_config_value("main", "text_scale", default=1)
-                char_w = FONT_SIZE[0] * text_scale
-                char_h = FONT_SIZE[1] * text_scale
+                char_w = font_size[0] * text_scale
+                char_h = font_size[1] * text_scale
                 self.window = pygame.display.set_mode((event.w // char_w * char_w, event.h // char_h * char_h), pygame.RESIZABLE)
 
             for i in self.components:

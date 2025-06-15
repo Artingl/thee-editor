@@ -1,5 +1,4 @@
 
-FONT_SIZE = 8, 16
 BITMAP_LETTERS_FONT = {
     None: (
         0, 0, 0, 0, 0, 0, 0, 0,

@@ -3,8 +3,6 @@ import pygame
 from typing import List
 
 from utils import *
-from utils.font_renderer import draw_text
-from utils.font import FONT_SIZE
 from component import Component
 
 from .buffer_mode import BufferMode
@@ -29,7 +27,7 @@ class BufferViewportComponent(Component):
         self.text_scale = self.application.get_text_scale()
         self.scroll_offset = 5
         self.caret_width = 2
-        self.caret_height = FONT_SIZE[1]
+        self.caret_height = 20
         self.buffer_id = None
         self.previous_mode = None
         self.enable_line_indicator = enable_line_indicator
@@ -56,6 +54,8 @@ class BufferViewportComponent(Component):
         return self.application.status_bar
 
     def update(self, dt):
+        self.caret_height = self.application.get_font_driver().get_font_size()[1]
+
         if self.previous_mode is None:
             self.previous_mode = self.get_mode()
 
@@ -90,6 +90,7 @@ class BufferViewportComponent(Component):
         self.application.get_command_executor().set_mode(mode)
 
     def update_buffer(self, key, unicode, modifier, skip_letter_insert=False, is_text_updated=False):
+        font_size = self.application.get_font_driver().get_font_size()
         if self.previous_mode != self.get_mode():
             self.previous_mode = self.get_mode()
             return
@@ -127,7 +128,7 @@ class BufferViewportComponent(Component):
 
         # Key combinations for increasing/decreasing scale of the text
         if key == pygame.K_EQUALS and (modifier & pygame.KMOD_CTRL or modifier & pygame.KMOD_LMETA):
-            if FONT_SIZE[1] * (self.text_scale + 3) < self.surface.get_height() * 0.2:
+            if font_size[1] * (self.text_scale + 3) < self.surface.get_height() * 0.2:
                 scale = self.application.get_text_scale() + 1
                 self.application.store_config_value("main", "text_scale", min(scale, 5))
             return
@@ -320,12 +321,15 @@ class BufferViewportComponent(Component):
         return super().mouse_wheel_event(x, y)
 
     def get_amount_of_lines_surf_height(self):
-        return round(self.surface.get_height() / (FONT_SIZE[1] * self.text_scale))
+        font_size = self.application.get_font_driver().get_font_size()
+        return round(self.surface.get_height() / (font_size[1] * self.text_scale))
     
     def get_amount_of_lines_surf_width(self):
-        return round(self.surface.get_width() / (FONT_SIZE[0] * self.text_scale))
+        font_size = self.application.get_font_driver().get_font_size()
+        return round(self.surface.get_width() / (font_size[0] * self.text_scale))
 
     def draw(self):
+        font_size = self.application.get_font_driver().get_font_size()
         # Calculate amount of lines that can fit the height of the buffer surface
         amount_of_lines_surf_height = self.get_amount_of_lines_surf_height() - 1
         amount_of_lines_surf_width = self.get_amount_of_lines_surf_width() - 1
@@ -341,7 +345,7 @@ class BufferViewportComponent(Component):
         # And if we'd not go over the total amount of lines
         elif y_line_offset + self.scroll_offset > self.current_y_line_offset \
                 and y_line_offset > self.previous_y_line_offset \
-                and self.current_y_line_offset + amount_of_lines_surf_height + 1 < len(self.base_lines):
+                and self.current_y_line_offset + amount_of_lines_surf_height + 1 < len(self.base_lines) + amount_of_lines_surf_height // 2:
             self.current_y_line_offset += y_line_offset - self.previous_y_line_offset
         elif y_line_offset > self.current_y_line_offset:
             self.current_y_line_offset = max(y_line_offset, 0)
@@ -356,7 +360,7 @@ class BufferViewportComponent(Component):
         # Draw line numbers indicator on the left
         if self.enable_line_indicator:
             for line_number, tokens in enumerate(lines_to_draw):
-                y_offset = line_number * FONT_SIZE[1] * self.text_scale
+                y_offset = line_number * font_size[1] * self.text_scale
                 line_number += self.current_y_line_offset
                 line_indicator_color = (170, 170, 170)
 
@@ -364,10 +368,10 @@ class BufferViewportComponent(Component):
                     line_indicator_color = (255, 255, 255)
 
                 # Draw the line indicator
-                line_indicator_len = ((self.lines_indicator_x_offset - 4) * self.text_scale) // FONT_SIZE[0] * self.text_scale
+                line_indicator_len = ((self.lines_indicator_x_offset - 4) * self.text_scale) // font_size[0] * self.text_scale
                 line_indicator_text = str(line_number + 1)
                 line_indicator_text = " " * (line_indicator_len - len(line_indicator_text)) + line_indicator_text
-                line_indicator_width, _ = draw_text(
+                line_indicator_width, _ = self.application.font_driver.draw_text(
                     self.surface,
                     line_indicator_text,
                     line_indicator_color,
@@ -379,7 +383,7 @@ class BufferViewportComponent(Component):
                     self.surface,
                     line_indicator_color,
                     ((self.lines_indicator_x_offset - 4) * self.text_scale, y_offset,
-                    int(1.5 * self.text_scale), FONT_SIZE[1] * self.text_scale)
+                    int(1.5 * self.text_scale), font_size[1] * self.text_scale)
                 )
 
                 # Dynamically update the lines indicator offset based on the width of the line number string
@@ -400,7 +404,7 @@ class BufferViewportComponent(Component):
             for line_number, tokens in enumerate(lines_to_draw):
                 total_line_length = 0
                 x_offset = 0
-                y_offset = line_number * FONT_SIZE[1] * self.text_scale
+                y_offset = line_number * font_size[1] * self.text_scale
 
                 for token in tokens:
                     line, color, background = self.parse_token(token, (255, 255, 255), (0, 0, 0))
@@ -411,7 +415,7 @@ class BufferViewportComponent(Component):
                     if not line:
                         continue
                     # Draw the line
-                    offset, _ = draw_text(
+                    offset, _ = self.application.font_driver.draw_text(
                         self.cache_lines_surface,
                         line,
                         color, background,
@@ -433,8 +437,8 @@ class BufferViewportComponent(Component):
             pygame.draw.rect(
                 self.surface,
                 (255, 255, 255),
-                ((self.caret_position[0] - line_x_offset) * FONT_SIZE[0] * self.text_scale + self.lines_indicator_x_offset * self.text_scale,
-                 self.caret_position[1] * FONT_SIZE[1] * self.text_scale + FONT_SIZE[1] * self.text_scale - self.caret_height * self.text_scale - self.current_y_line_offset * FONT_SIZE[1] * self.text_scale,
+                ((self.caret_position[0] - line_x_offset) * font_size[0] * self.text_scale + self.lines_indicator_x_offset * self.text_scale,
+                 self.caret_position[1] * font_size[1] * self.text_scale + font_size[1] * self.text_scale - self.caret_height * self.text_scale - self.current_y_line_offset * font_size[1] * self.text_scale,
                 self.caret_width * self.text_scale, self.caret_height * self.text_scale)
             )
 

@@ -1,6 +1,3 @@
-# Bullshit code is written here.
-# Wanted to make a PoC syntax highlighter, that's why it is so poorly written.
-
 from ..shell.buffer_component import BufferToken
 
 BASE_COLOR = (255, 255, 255)
@@ -109,11 +106,14 @@ def get_syntax_highlighter_for_filename(filename: str):
     from .c_syntax import CSyntaxHighlighter
     from .py_syntax import PySyntaxHighlighter
     from .json_syntax import JsonSyntaxHighlighter
+    from .md_syntax import MarkdownSyntaxHighlighter
 
     if filename.endswith(".py"):
         return PySyntaxHighlighter(), "Python file"
     elif filename.endswith(".json"):
         return JsonSyntaxHighlighter(), "JSON file"
+    elif filename.endswith(".md"):
+        return MarkdownSyntaxHighlighter(), "Markdown file"
     elif filename.endswith(".c") \
         or filename.endswith(".cc") \
         or filename.endswith(".cpp") \

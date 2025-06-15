@@ -3,7 +3,6 @@ import os
 import pyperclip
 
 from engine.lang import BaseSyntaxHighlighter, get_syntax_highlighter_for_filename
-from utils import FONT_SIZE
 
 from .buffer_component import BufferViewportComponent
 from .buffer_mode import BufferMode

@@ -84,8 +84,11 @@ class TerminalViewportComponent(BufferViewportComponent):
             buffer = self.base_lines[-1][len(splitted_lines[-1]) - 1:]
             print(buffer)
             self.pipe.stdin.write((buffer + "\n").encode())
-
-        return super().update_buffer(key, unicode, modifier, skip_letter_insert, is_text_updated)
+        
+        # TODO: Check that we don't remove terminal content while pressing backspace in insert mode
+        allow_input = True
+        if self.get_mode() != BufferMode.INSERT and key != pygame.K_BACKSPACE and allow_input:
+            return super().update_buffer(key, unicode, modifier, skip_letter_insert, is_text_updated)
 
     def generate_tokens(self):
         return self.syntax_highlighter.parse_code(self.base_lines)
