@@ -47,12 +47,14 @@ class BufferViewportComponent(Component):
         self.current_y_line_offset = 0
         self.previous_y_line_offset = 0
         self.last_x_caret_position = 0
+        self.is_left_mouse_button_pressed = False
 
         self.command_executor = self.application.get_command_executor()
 
     def generate_tokens(self) -> List[List[BufferToken]]: ...
 
     def start_selection(self, selection_to=None):
+        self.set_mode(BufferMode.VISUAL)
         if not selection_to:
             selection_to = [0, 0]
         self.selection = [self.caret_position.copy(), selection_to.copy()]
@@ -76,6 +78,9 @@ class BufferViewportComponent(Component):
     def update(self, dt):
         self.caret_height = self.application.get_font_driver().get_font_size()[1]
 
+        self.caret_position[1] = max(min(self.caret_position[1], len(self.base_lines) - 1), 0)
+        self.caret_position[0] = max(min(self.caret_position[0], len(self.base_lines[self.caret_position[1]])), 0)
+        
         if self.previous_mode is None:
             self.previous_mode = self.get_mode()
 
@@ -120,8 +125,6 @@ class BufferViewportComponent(Component):
         self.caret_blink_animation = 0
         self.caret_blink_animation_flag = True
 
-        self.caret_position[1] = max(min(self.caret_position[1], len(self.base_lines) - 1), 0)
-        self.caret_position[0] = max(min(self.caret_position[0], len(self.base_lines[self.caret_position[1]])), 0)
         line_text = self.base_lines[self.caret_position[1]]
 
         if key == pygame.K_TAB and self.get_mode() == BufferMode.COMMAND:
@@ -141,7 +144,6 @@ class BufferViewportComponent(Component):
             
         # Selection using V key
         if key == pygame.K_v and self.get_mode() == BufferMode.COMMAND:
-            self.set_mode(BufferMode.VISUAL)
             self.start_selection()
 
         # TODO: fix modifier keys, they are not reported correctly when arrow key is pressed
@@ -188,18 +190,12 @@ class BufferViewportComponent(Component):
                 self.last_x_caret_position = self.caret_position[0]
             elif key == pygame.K_UP:
                 self.caret_position[1] -= 1
-                self.caret_position[1] = max(min(self.caret_position[1], len(self.base_lines) - 1), 0)
-                self.caret_position[0] = min(self.last_x_caret_position, len(self.base_lines[self.caret_position[1]]))
             elif key == pygame.K_DOWN:
                 self.caret_position[1] += 1
-                self.caret_position[1] = max(min(self.caret_position[1], len(self.base_lines) - 1), 0)
-                self.caret_position[0] = min(self.last_x_caret_position, len(self.base_lines[self.caret_position[1]]))
-
+          
         # Step further to the next line if in command mode (the same as pressing down arrow)
         if key == pygame.K_RETURN and self.get_mode() == BufferMode.COMMAND:
             self.caret_position[1] += 1
-            self.caret_position[1] = max(min(self.caret_position[1], len(self.base_lines) - 1), 0)
-            self.caret_position[0] = min(self.last_x_caret_position, len(self.base_lines[self.caret_position[1]]))
         # Step further in the line if in command mode (the same as pressing right arrow)
 
         elif key == pygame.K_DELETE and self.get_mode() == BufferMode.INSERT:
@@ -350,12 +346,48 @@ class BufferViewportComponent(Component):
     def mouse_wheel_event(self, x, y):
         # TODO: I need to reverse the scrolling direction.
         #       I dunno if that's because i am on mac or thats's how
-        #       things needs to be done. Look at that
+        #       things needs to be done.
         scroll_direction = y * -1 + self.caret_position[1]
         self.caret_position[1] = max(min(scroll_direction, len(self.base_lines) - 1), 1)
         self.caret_position[0] = len(self.base_lines[self.caret_position[1]])
         return super().mouse_wheel_event(x, y)
 
+    def mouse_down_event(self, button, x, y):
+        # self.start_selection()
+
+        # Set the caret position to current mouse's position
+        if button == 1:
+            self.set_caret_mouse_relative(x, y)
+            self.is_left_mouse_button_pressed = True
+        return super().mouse_down_event(button, x, y)
+
+    def mouse_up_event(self, button, x, y):
+        if button == 1:
+            self.is_left_mouse_button_pressed = False
+        self.stop_selection()
+        return super().mouse_down_event(button, x, y)
+
+    def mouse_motion_event(self, x, y):
+        # Set the caret position to current mouse's position
+        if self.is_left_mouse_button_pressed:
+            self.set_caret_mouse_relative(x, y)
+        return super().mouse_motion_event(x, y)
+
+    def set_caret_mouse_relative(self, x, y):
+        font_size = self.application.get_font_driver().get_font_size()
+        new_x = x / font_size[0] / self.text_scale
+        new_y = y / font_size[1] / self.text_scale + self.current_y_line_offset
+
+        if self.enable_line_indicator:
+            new_x -= self.lines_indicator_x_offset / font_size[0]
+
+        self.caret_position = [int(new_x), int(new_y)]
+
+        # This makes the caret to be immediately visible regardless of the current 
+        # So the caret is visible when the mouse is pressed or dragged
+        self.caret_blink_animation_flag = True
+        self.caret_blink_animation = 0
+    
     def get_amount_of_lines_surf_height(self):
         font_size = self.application.get_font_driver().get_font_size()
         return round(self.surface.get_height() / (font_size[1] * self.text_scale))
@@ -457,26 +489,53 @@ class BufferViewportComponent(Component):
                             x_offset, y_offset,
                             pixel_size=(self.text_scale, self.text_scale),
                         )
+                    else:
+                        # Make the line not empty in case a selection is applied below
+                        line = " "
                     
                     # If the current token position is inside the selection, change background
                     if self.selection:
+                        start_selection, end_selection = self.selection
+                        selection_y_offset = line_number + self.current_y_line_offset
+
                         for idx_offset, _ in enumerate(line):
-                            start_selection, end_selection = self.selection
                             selection_x_offset = total_line_length + idx_offset
-                            selection_y_offset = line_number + self.current_y_line_offset
-                            if start_selection[0] <= selection_x_offset:
+
+                            # The conditions below are madness, i don't wanna deal with that anymore...
+                            # For sure there's a more clever solution to that, but that's what i came
+                            # up with as of right now
+
+                            # Selection that goes below the start_selection line
+                            if start_selection[0] <= selection_x_offset or start_selection[1] < selection_y_offset:
                                 selection_x_offset += 1
 
-                            if max(end_selection[0], start_selection[0]) >= selection_x_offset >= min(end_selection[0], start_selection[0]) and \
-                                max(end_selection[1], start_selection[1]) >= selection_y_offset >= min(end_selection[1], start_selection[1]):
-                                draw_transparent_rect(
-                                    self.cache_lines_surface,
-                                    (255, 255, 255, 120),
-                                    (x_offset + idx_offset * font_size[0] * self.text_scale,
-                                    y_offset,
-                                    font_size[0] * self.text_scale,
-                                    font_size[1] * self.text_scale)
-                                )
+                                if (end_selection[0] >= selection_x_offset >= start_selection[0] and selection_y_offset == start_selection[1] == self.caret_position[1]) or \
+                                        (end_selection[0] >= selection_x_offset and selection_y_offset == self.caret_position[1] != start_selection[1]) or \
+                                        (selection_x_offset >= start_selection[0] and selection_y_offset == start_selection[1] < self.caret_position[1]) or \
+                                        (self.caret_position[1] > start_selection[1] and selection_y_offset < self.caret_position[1] and selection_y_offset > start_selection[1]):
+                                    draw_transparent_rect(
+                                        self.cache_lines_surface,
+                                        (255, 255, 255, 120),
+                                        (x_offset + idx_offset * font_size[0] * self.text_scale,
+                                        y_offset,
+                                        font_size[0] * self.text_scale,
+                                        font_size[1] * self.text_scale)
+                                    )
+                            # Selection that goes above the start_selection line
+                            elif (self.caret_position[0] < start_selection[0] and self.caret_position[1] == start_selection[1] == selection_y_offset) or \
+                                self.caret_position[1] < start_selection[1]:
+                                # if (end_selection[0] >= selection_x_offset >= start_selection[0] and selection_y_offset == start_selection[1] == self.caret_position[1]) or \
+                                #         (end_selection[0] >= selection_x_offset and selection_y_offset == self.caret_position[1] != start_selection[1]) or \
+                                #         (selection_x_offset >= start_selection[0] and selection_y_offset == start_selection[1] < self.caret_position[1]) or \
+                                #         (self.caret_position[1] > start_selection[1] and selection_y_offset < self.caret_position[1] and selection_y_offset > start_selection[1]):
+                                    draw_transparent_rect(
+                                        self.cache_lines_surface,
+                                        (255, 255, 255, 120),
+                                        (x_offset + idx_offset * font_size[0] * self.text_scale,
+                                        y_offset,
+                                        font_size[0] * self.text_scale,
+                                        font_size[1] * self.text_scale)
+                                    )
                     total_line_length += line_length
                     x_offset += offset * self.text_scale
             self.lines_indicator_x_offset = new_lines_indicator_width

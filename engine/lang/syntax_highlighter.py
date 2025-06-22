@@ -83,6 +83,8 @@ class BaseSyntaxHighlighter:
         return tokens, is_end
 
     def parse_singleline_comment(self, comment_sign=''):
+        # TODO: add check for substrings like TODO, XXX, FIXME, HACK, etc.
+
         tokens = []
         text, is_end, is_new_line = self.next_char()
         text = comment_sign + text

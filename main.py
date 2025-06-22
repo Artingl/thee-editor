@@ -247,6 +247,7 @@ class EditorApplication:
 
     def process_events(self):
         font_size = self.get_font_driver().get_font_size()
+        mouse_position = pygame.mouse.get_pos()
         
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -258,6 +259,9 @@ class EditorApplication:
                 self.window = pygame.display.set_mode((event.w // char_w * char_w, event.h // char_h * char_h), pygame.RESIZABLE & pygame.SRCALPHA)
 
             for i in self.components:
+                relative_mpos = [mouse_position[0] - i.position[0],
+                                 mouse_position[1] - i.position[1]]
+
                 if event.type == pygame.KEYDOWN:
                     i.key_down_event(*self.key_down)
                     self.key_down_timeout = 0.2
@@ -268,6 +272,13 @@ class EditorApplication:
                     self.key_down = [None, None, None]
                 if event.type == pygame.MOUSEWHEEL:
                     i.mouse_wheel_event(event.x, event.y)
+                else:
+                    if event.type == pygame.MOUSEBUTTONDOWN and relative_mpos[0] >= 0 and relative_mpos[1] >= 0:
+                        i.mouse_down_event(event.button, *relative_mpos)
+                    if event.type == pygame.MOUSEBUTTONUP and relative_mpos[0] >= 0 and relative_mpos[1] >= 0:
+                        i.mouse_up_event(event.button, *relative_mpos)
+                    if event.type == pygame.MOUSEMOTION and relative_mpos[0] >= 0 and relative_mpos[1] >= 0:
+                        i.mouse_motion_event(*relative_mpos)
                 i.propagate_event(event)
     
     def run_loop(self):

@@ -40,6 +40,18 @@ class Component:
         for i in self.children:
             i.mouse_wheel_event(x, y)
     
+    def mouse_down_event(self, button, x, y):
+        for i in self.children:
+            i.mouse_down_event(button, x, y)
+    
+    def mouse_up_event(self, button, x, y):
+        for i in self.children:
+            i.mouse_up_event(button, x, y)
+    
+    def mouse_motion_event(self, x, y):
+        for i in self.children:
+            i.mouse_motion_event(x, y)
+    
     def draw(self):
         if self.is_headless:
             return

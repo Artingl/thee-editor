@@ -69,7 +69,9 @@ class Statusbar(Component):
             status_bar_background_color = self.status_bar_text_background
 
         if command_executor.get_mode() == BufferMode.INSERT:
-            status_bar_background_color = (100, 100, 190)
+            status_bar_background_color = (50, 50, 190)
+        if command_executor.get_mode() == BufferMode.VISUAL:
+            status_bar_background_color = (50, 130, 50)
 
         # Draw current buffer mode with a separator
         self.application.font_driver.draw_text(
