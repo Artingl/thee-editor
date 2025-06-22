@@ -87,7 +87,7 @@ class EditorApplication:
         self.load_config()
         
         size = self.get_config_value("main", "window_dimensions", default=[900, 560])
-        self.window = pygame.display.set_mode(size, pygame.RESIZABLE & pygame.SRCALPHA)
+        self.window = pygame.display.set_mode(size, pygame.RESIZABLE | pygame.SRCALPHA)
         self.timer = pygame.time.Clock()
         self.font_driver = FontDriver(FontType(self.get_config_value("main", "font_type", default=FontType.BITMAP.value)))
         self.running = True
@@ -256,11 +256,12 @@ class EditorApplication:
                 text_scale = self.get_config_value("main", "text_scale", default=1)
                 char_w = font_size[0] * text_scale
                 char_h = font_size[1] * text_scale
-                self.window = pygame.display.set_mode((event.w // char_w * char_w, event.h // char_h * char_h), pygame.RESIZABLE & pygame.SRCALPHA)
+                self.window = pygame.display.set_mode((event.w // char_w * char_w, event.h // char_h * char_h), pygame.RESIZABLE | pygame.SRCALPHA)
 
             for i in self.components:
                 relative_mpos = [mouse_position[0] - i.position[0],
                                  mouse_position[1] - i.position[1]]
+                print(i.__class__.__name__, relative_mpos)
 
                 if event.type == pygame.KEYDOWN:
                     i.key_down_event(*self.key_down)
