@@ -33,9 +33,11 @@ class BufferViewportComponent(Component):
         self.enable_line_indicator = enable_line_indicator
 
         self.previous_lines_to_draw = None
-        self.cache_lines_surface = pygame.Surface((self.surface.get_width(), self.surface.get_height()))
+        self.cache_lines_surface = pygame.Surface((self.surface.get_width(), self.surface.get_height()), pygame.SRCALPHA)
         # Amount of frames that needs to be forcefully drawn by the buffer without caching
         self.forcefully_update_buffer = 4
+
+        self.selection = None
 
         self.caret_position = [0, 0]
         self.caret_blink_animation = 0
@@ -49,6 +51,24 @@ class BufferViewportComponent(Component):
         self.command_executor = self.application.get_command_executor()
 
     def generate_tokens(self) -> List[List[BufferToken]]: ...
+
+    def start_selection(self, selection_to=None):
+        if not selection_to:
+            selection_to = [0, 0]
+        self.selection = [self.caret_position.copy(), selection_to.copy()]
+
+    def stop_selection(self):
+        self.selection = None
+
+    def get_selection_text(self):
+        # TODO: implement this function
+        text = ""
+        self.selection = None
+        return text
+
+    def set_selection_position(self, selection_to):
+        if self.selection:
+            self.selection[1] = selection_to
 
     def get_status_bar(self):
         return self.application.status_bar
@@ -79,7 +99,7 @@ class BufferViewportComponent(Component):
 
         current_size = (self.surface.get_width(), self.surface.get_height())
         if current_size != (self.cache_lines_surface.get_width(), self.cache_lines_surface.get_height()):
-            self.cache_lines_surface = pygame.Surface(current_size)
+            self.cache_lines_surface = pygame.Surface(current_size, pygame.SRCALPHA)
 
         return super().update(dt)
 
@@ -114,6 +134,16 @@ class BufferViewportComponent(Component):
                     self.caret_position[0] -= 4
             self.last_x_caret_position = self.caret_position[0]
          
+        # Selection logic using arrow keys and shift
+        if key == pygame.K_LEFT and modifier & pygame.KMOD_SHIFT:
+            # TODO: Implement selection logic
+            pass
+            
+        # Selection using V key
+        if key == pygame.K_v and self.get_mode() == BufferMode.COMMAND:
+            self.set_mode(BufferMode.VISUAL)
+            self.start_selection()
+
         # TODO: fix modifier keys, they are not reported correctly when arrow key is pressed
         # If 'w' letter is pressed and in command mode, skip to next literal.
         # Or if a combination ctrl + right_arrow is pressed
@@ -215,6 +245,12 @@ class BufferViewportComponent(Component):
         # If text was updated, parse it again
         if is_text_updated:
             self.token_lines = self.generate_tokens()
+        
+        # if currently in visual mode, set current visual position to current caret's position
+        if self.get_mode() == BufferMode.VISUAL:
+            self.set_selection_position(self.caret_position)
+        else:
+            self.stop_selection()
 
     def parse_token(self, token, color=(255, 255, 255), background=(0, 0, 0)):
         result = token
@@ -399,7 +435,7 @@ class BufferViewportComponent(Component):
         if True or self.previous_lines_to_draw != lines_to_draw or self.forcefully_update_buffer > 0:
             self.forcefully_update_buffer -= 1
             self.forcefully_update_buffer = max(self.forcefully_update_buffer, 0)
-            self.cache_lines_surface.fill((0, 0, 0))
+            self.cache_lines_surface.fill((0, 0, 0, 255))
             self.previous_lines_to_draw = lines_to_draw
             for line_number, tokens in enumerate(lines_to_draw):
                 total_line_length = 0
@@ -411,19 +447,38 @@ class BufferViewportComponent(Component):
                     line_length = len(line)
                     if total_line_length < line_x_offset:
                         line = line[line_x_offset - total_line_length:]
+                    offset = 0
+                    if line:
+                        # Draw the line
+                        offset, _ = self.application.font_driver.draw_text(
+                            self.cache_lines_surface,
+                            line,
+                            color, background,
+                            x_offset, y_offset,
+                            pixel_size=(self.text_scale, self.text_scale),
+                        )
+                    
+                    # If the current token position is inside the selection, change background
+                    if self.selection:
+                        for idx_offset, _ in enumerate(line):
+                            start_selection, end_selection = self.selection
+                            selection_x_offset = total_line_length + idx_offset
+                            selection_y_offset = line_number + self.current_y_line_offset
+                            if start_selection[0] <= selection_x_offset:
+                                selection_x_offset += 1
+
+                            if max(end_selection[0], start_selection[0]) >= selection_x_offset >= min(end_selection[0], start_selection[0]) and \
+                                max(end_selection[1], start_selection[1]) >= selection_y_offset >= min(end_selection[1], start_selection[1]):
+                                draw_transparent_rect(
+                                    self.cache_lines_surface,
+                                    (255, 255, 255, 120),
+                                    (x_offset + idx_offset * font_size[0] * self.text_scale,
+                                    y_offset,
+                                    font_size[0] * self.text_scale,
+                                    font_size[1] * self.text_scale)
+                                )
                     total_line_length += line_length
-                    if not line:
-                        continue
-                    # Draw the line
-                    offset, _ = self.application.font_driver.draw_text(
-                        self.cache_lines_surface,
-                        line,
-                        color, background,
-                        x_offset, y_offset,
-                        pixel_size=(self.text_scale, self.text_scale),
-                    )
                     x_offset += offset * self.text_scale
-            
             self.lines_indicator_x_offset = new_lines_indicator_width
 
         # Draw the lines

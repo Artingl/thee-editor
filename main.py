@@ -60,7 +60,7 @@ class LoggerHandler(logging.Handler):
         self.log_history.append(msg[:80] + ("..." if len(msg) > 80 else ""))
         self.log_history = self.log_history[-20:]
 
-    def __print_wrapper(self, text, *args, **kwargs):
+    def __print_wrapper(self, text='', *args, **kwargs):
         # TODO: implement kwargs
         text = str(text)
         log_history_text = ' '.join([text] + [str(i) for i in args])
@@ -87,7 +87,7 @@ class EditorApplication:
         self.load_config()
         
         size = self.get_config_value("main", "window_dimensions", default=[900, 560])
-        self.window = pygame.display.set_mode(size, pygame.RESIZABLE)
+        self.window = pygame.display.set_mode(size, pygame.RESIZABLE & pygame.SRCALPHA)
         self.timer = pygame.time.Clock()
         self.font_driver = FontDriver(FontType(self.get_config_value("main", "font_type", default=FontType.BITMAP.value)))
         self.running = True
@@ -255,7 +255,7 @@ class EditorApplication:
                 text_scale = self.get_config_value("main", "text_scale", default=1)
                 char_w = font_size[0] * text_scale
                 char_h = font_size[1] * text_scale
-                self.window = pygame.display.set_mode((event.w // char_w * char_w, event.h // char_h * char_h), pygame.RESIZABLE)
+                self.window = pygame.display.set_mode((event.w // char_w * char_w, event.h // char_h * char_h), pygame.RESIZABLE & pygame.SRCALPHA)
 
             for i in self.components:
                 if event.type == pygame.KEYDOWN:

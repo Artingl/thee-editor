@@ -11,6 +11,7 @@ class Statusbar(Component):
         BufferMode.COMMAND: 'C',
         BufferMode.INSERT: 'I',
         BufferMode.COMMAND_INSERT: 'X',
+        BufferMode.VISUAL: 'V',
     }
 
     def __init__(self, app):
@@ -23,7 +24,7 @@ class Statusbar(Component):
     def propagate_event(self, event):
         font_size = self.application.get_font_driver().get_font_size()
         if event.type == pygame.VIDEORESIZE:
-            self.surface = pygame.Surface((self.application.get_width(), font_size[1] * self.application.get_text_scale()))
+            self.surface = pygame.Surface((self.application.get_width(), font_size[1] * self.application.get_text_scale()), pygame.SRCALPHA)
             self.y = self.application.get_height() - font_size[1] * self.application.get_text_scale()
     
     def display_text(self, text, color=(255, 255, 255), background=(0, 0, 0)):

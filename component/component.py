@@ -8,7 +8,7 @@ class Component:
         self.position = position
         self.is_headless = is_headless
         if not is_headless:
-            self.surface = pygame.Surface((1, 1))
+            self.surface = pygame.Surface((1, 1), pygame.SRCALPHA)
         self.is_focused = False
         self.children: List[Component] = []
 
@@ -71,7 +71,7 @@ class Component:
         if self.is_headless:
             return
         if size != (self.surface.get_width(), self.surface.get_height()):
-            self.surface = pygame.Surface(size)
+            self.surface = pygame.Surface(size, pygame.SRCALPHA)
             self.current_size = size
         self.position = position
 

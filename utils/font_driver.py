@@ -36,7 +36,7 @@ class FontDriver:
         pixel_size: int = (1, 1),
     ):
         width, height = self.get_font_size()
-        surface = pygame.Surface((width * pixel_size[0], height * pixel_size[1]))
+        surface = pygame.Surface((width * pixel_size[0], height * pixel_size[1]), pygame.SRCALPHA)
         for index_x in range(width):
             for index_y in range(height):
                 index = (index_y) * width + index_x
@@ -56,8 +56,11 @@ class FontDriver:
     ):
         font_name = self.current_font_name
         if font_name not in self.font_cache:
-            self.font_cache[font_name] = pygame.font.Font(f"{font_name}.ttf", self.get_font_size()[1])
-        return self.font_cache[font_name].render(letter, True, color)
+            self.font_cache[font_name] = pygame.font.Font(f"assets/font/{font_name}.ttf", self.get_font_size()[1])
+        surf = self.font_cache[font_name].render(letter, False, color, background)
+        # if pixel_size != (1, 1):
+        #     surf = pygame.transform.scale(surf, pixel_size)
+        return surf
 
     def draw_text(
         self,
@@ -89,7 +92,7 @@ class FontDriver:
                         pixel_size=pixel_size
                     )
             elif self.font_type == FontType.TRUETYPE_MONOSPACE:
-                if is_allowed_alpha_chars(letter, additional=string.punctuation):
+                if is_allowed_alpha_chars(letter, additional=string.punctuation + " "):
                     result_surface = self.draw_truetype_monospace(
                         color, background,
                         letter,

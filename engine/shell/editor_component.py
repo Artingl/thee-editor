@@ -14,7 +14,7 @@ class EditorViewportComponent(BufferViewportComponent):
         self.filename = "unnamed.txt"
         self.file_type = "text file"
         self.is_unsaved = False
-        self.cut_shortcut_count = 0
+        self.shortcut_count = {}
         self.syntax_highlighter = BaseSyntaxHighlighter()
         self.token_lines = self.syntax_highlighter.parse_code(self.base_lines)
 
@@ -71,6 +71,7 @@ class EditorViewportComponent(BufferViewportComponent):
     def update_buffer(self, key, unicode, modifier):
         self.caret_position[1] = max(min(self.caret_position[1], len(self.base_lines) - 1), 0)
         self.caret_position[0] = max(min(self.caret_position[0], len(self.base_lines[self.caret_position[1]])), 0)
+        should_rerender = False
         is_text_updated = False
         skip_letter_insert = False
         
@@ -105,7 +106,7 @@ class EditorViewportComponent(BufferViewportComponent):
         # Or if a combination ctrl + x is pressed
         if (key == pygame.K_d and self.get_mode() == BufferMode.COMMAND) or \
             (key == pygame.K_x and self.get_mode() == BufferMode.INSERT and (modifier & pygame.KMOD_CTRL or modifier & pygame.KMOD_LMETA)):
-            if key == pygame.K_x or self.cut_shortcut_count >= 1:
+            if key == pygame.K_x or self.shortcut_count.get('cut', 0) >= 1:
                 skip_letter_insert = True
                 is_text_updated = True
                 cut_text = self.base_lines.pop(self.caret_position[1]) + "\n"
@@ -113,9 +114,31 @@ class EditorViewportComponent(BufferViewportComponent):
                 pyperclip.copy(cut_text)
                 self.caret_position[1] = min(self.caret_position[1], len(self.base_lines) - 1)
                 self.caret_position[0] = 0
-                self.cut_shortcut_count = 0
+                self.shortcut_count['cut'] = 0
             else:
-                self.cut_shortcut_count += 1
+                self.shortcut_count['cut'] = self.shortcut_count.get('cut', 0) + 1
+        
+        # When double G is pressed or HOME button, move the caret to the beginning of the file
+        if (key == pygame.K_g and self.get_mode() == BufferMode.COMMAND) or key == pygame.K_HOME:
+            if key == pygame.K_HOME or self.shortcut_count.get('jump_to_beginning', 0) >= 1:
+                should_rerender = True
+                skip_letter_insert = True
+                self.caret_position[0] = 0
+                self.caret_position[1] = 0
+                self.lines_indicator_x_offset = 0
+                self.current_y_line_offset = 0
+                self.previous_y_line_offset = 0
+                self.last_x_caret_position = 0
+                self.shortcut_count['jump_to_beginning'] = 0
+            elif modifier == 0:
+                self.shortcut_count['jump_to_beginning'] = self.shortcut_count.get('jump_to_beginning', 0) + 1
+        
+        # When shift + G is pressed or END button, move the caret to the end of the file
+        if (key == pygame.K_g and modifier & pygame.KMOD_SHIFT and self.get_mode() == BufferMode.COMMAND) or key == pygame.K_END:
+            should_rerender = True
+            skip_letter_insert = True
+            self.caret_position[1] = len(self.base_lines) - 1
+            self.caret_position[0] = len(self.base_lines[self.caret_position[1]])
         
         if key == pygame.K_RETURN and self.get_mode() == BufferMode.INSERT:
             # Insert a new line below the caret if in insert mode
@@ -135,8 +158,9 @@ class EditorViewportComponent(BufferViewportComponent):
             self.caret_position[0] = whitespaces
             self.caret_position[1] += 1
         
-        if is_text_updated:
-            self.is_unsaved = True
+        if is_text_updated or should_rerender:
+            if is_text_updated:
+                self.is_unsaved = True
             self.token_lines = self.generate_tokens()
 
         return super().update_buffer(key, unicode, modifier, skip_letter_insert, is_text_updated)
