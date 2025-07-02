@@ -87,11 +87,14 @@ class EditorApplication:
         self.load_config()
         
         size = self.get_config_value("main", "window_dimensions", default=[900, 560])
-        self.window = pygame.display.set_mode(size, pygame.RESIZABLE | pygame.SRCALPHA)
+        self.window_flags = pygame.RESIZABLE | pygame.SRCALPHA  # | pygame.SCALED | pygame.FULLSCREEN
+        self.window = pygame.display.set_mode(size, self.window_flags)
         self.timer = pygame.time.Clock()
         self.font_driver = FontDriver(FontType(self.get_config_value("main", "font_type", default=FontType.BITMAP.value)))
         self.running = True
         self.is_restarting = False
+        self.is_focused = True
+        self.current_mouse_cursor = pygame.SYSTEM_CURSOR_ARROW
         self.caption = caption
         self.components = []
         self.key_down_timeout = 0
@@ -116,7 +119,7 @@ class EditorApplication:
         return self.font_driver
 
     def get_focused_buffer_viewport(self):
-        return self.buffers_stack.get_focused_component()
+        return self.buffers_stack.get_mouse_focused_component()
 
     def get_command_executor(self):
         return self.command_executor
@@ -256,31 +259,39 @@ class EditorApplication:
                 text_scale = self.get_config_value("main", "text_scale", default=1)
                 char_w = font_size[0] * text_scale
                 char_h = font_size[1] * text_scale
-                self.window = pygame.display.set_mode((event.w // char_w * char_w, event.h // char_h * char_h), pygame.RESIZABLE | pygame.SRCALPHA)
+                self.window = pygame.display.set_mode((event.w // char_w * char_w, event.h // char_h * char_h), self.window_flags)
 
-            for i in self.components:
-                relative_mpos = [mouse_position[0] - i.position[0],
-                                 mouse_position[1] - i.position[1]]
-                print(i.__class__.__name__, relative_mpos)
-
-                if event.type == pygame.KEYDOWN:
-                    i.key_down_event(*self.key_down)
+            for component in self.components:
+                relative_mpos = [mouse_position[0] - component.position[0],
+                                 mouse_position[1] - component.position[1]]
+                if event.type == pygame.ACTIVEEVENT:
+                    if event.state & pygame.APPMOUSEFOCUS or event.state & pygame.APPINPUTFOCUS:
+                        self.is_focused = event.gain
+                elif event.type == pygame.KEYDOWN:
+                    component.key_down_event(*self.key_down)
                     self.key_down_timeout = 0.2
                     self.key_down = [event.key, "    " if event.key == pygame.K_TAB else event.unicode, pygame.key.get_mods()]
-                if event.type == pygame.KEYUP:
-                    i.key_up_event(*self.key_down)
+                elif event.type == pygame.KEYUP:
+                    component.key_up_event(*self.key_down)
                     self.key_down_timeout = 0
                     self.key_down = [None, None, None]
-                if event.type == pygame.MOUSEWHEEL:
-                    i.mouse_wheel_event(event.x, event.y)
-                else:
-                    if event.type == pygame.MOUSEBUTTONDOWN and relative_mpos[0] >= 0 and relative_mpos[1] >= 0:
-                        i.mouse_down_event(event.button, *relative_mpos)
-                    if event.type == pygame.MOUSEBUTTONUP and relative_mpos[0] >= 0 and relative_mpos[1] >= 0:
-                        i.mouse_up_event(event.button, *relative_mpos)
-                    if event.type == pygame.MOUSEMOTION and relative_mpos[0] >= 0 and relative_mpos[1] >= 0:
-                        i.mouse_motion_event(*relative_mpos)
-                i.propagate_event(event)
+                elif event.type == pygame.MOUSEWHEEL:
+                    component.mouse_wheel_event(event.x, event.y)
+                if component.get_width() >= relative_mpos[0] >= 0 and component.get_height() >= relative_mpos[1] >= 0:
+                    if event.type == pygame.MOUSEBUTTONDOWN:
+                        component.mouse_down_event(event.button, *relative_mpos)
+                    if event.type == pygame.MOUSEBUTTONUP:
+                        component.mouse_up_event(event.button, *relative_mpos)
+                    if event.type == pygame.MOUSEMOTION:
+                        component.mouse_motion_event(*relative_mpos)
+                    
+                    focused_component = component.get_mouse_focused_component()
+                    if focused_component:
+                        self.current_mouse_cursor = focused_component.get_cursor()
+                component.propagate_event(event)
+
+        if self.is_focused:
+            pygame.mouse.set_cursor(self.current_mouse_cursor)
     
     def run_loop(self):
         while self.running:

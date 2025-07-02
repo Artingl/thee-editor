@@ -12,6 +12,14 @@ class Component:
         self.is_focused = False
         self.children: List[Component] = []
 
+    def get_cursor(self):
+        return pygame.SYSTEM_CURSOR_ARROW
+
+    def get_mouse_focused_component(self):
+        # This function exists for cases when the children components
+        # might gain the focus of this parent component (e.g. in stack components)
+        return self
+
     def propagate_event(self, event):
         for i in self.children:
             i.propagate_event(event)
@@ -42,15 +50,21 @@ class Component:
     
     def mouse_down_event(self, button, x, y):
         for i in self.children:
-            i.mouse_down_event(button, x, y)
+            component_x, component_y = x - i.position[0], y - i.position[1]
+            if i.get_width() >= component_x >= 0 and i.get_height() >= component_y >= 0:
+                i.mouse_down_event(button, component_x, component_y)
     
     def mouse_up_event(self, button, x, y):
         for i in self.children:
-            i.mouse_up_event(button, x, y)
+            component_x, component_y = x - i.position[0], y - i.position[1]
+            if i.get_width() >= component_x >= 0 and i.get_height() >= component_y >= 0:
+                i.mouse_up_event(button, component_x, component_y)
     
     def mouse_motion_event(self, x, y):
         for i in self.children:
-            i.mouse_motion_event(x, y)
+            component_x, component_y = x - i.position[0], y - i.position[1]
+            if i.get_width() >= component_x >= 0 and i.get_height() >= component_y >= 0:
+                i.mouse_motion_event(component_x, component_y)
     
     def draw(self):
         if self.is_headless:

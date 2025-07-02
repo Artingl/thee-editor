@@ -16,10 +16,22 @@ class Command:
         self.status_bar = self.application.status_bar
         self.buffer_viewport = None
     
+    def usage(self) -> str:
+        return {"description": "No description", "usage": ["No usage info is defined"]}
+    
     def execute(self, cmd, args): ...
 
 
 class OpenCommand(Command):
+    def usage(self):
+        return {
+            "description": "Opens file", 
+            "usage": [
+                'To open a file: open FILENAME',
+                'To forcefully open a file (without saving current): open FILENAME !'
+            ]
+        }
+
     def execute(self, cmd, args):
         buffer_viewport = self.buffer_viewport
         if not isinstance(self.buffer_viewport, EditorViewportComponent):
@@ -127,6 +139,24 @@ class SplitCommand(Command):
     def execute(self, cmd, args):
         from engine.shell import EditorViewportComponent
         self.application.buffers_stack.add_child_component(EditorViewportComponent(self.application))
+       
+
+class HelpCommand(Command):
+    def usage(self):
+        return {
+            "description": "Prints this message",
+            "usage": ["To display help message: help/info"]
+        }
+
+    def execute(self, cmd, args):
+        commands_list = self.executor.commands
+        info_string = ""
+        for aliases, command in commands_list.items():
+            usage = command.usage()
+            info_string += "Usage of " + ', '.join(aliases) + "\n"
+            info_string += f"  Description: {usage['description']}\n\n"
+            info_string += "  " + "\n  ".join(usage["usage"]) + "\n"
+        print(info_string)
 
 
 class CommandExecutor(Component):
@@ -143,15 +173,16 @@ class CommandExecutor(Component):
         self.command_insert_value_saved = ""
 
         self.commands = {
-            ('open'): OpenCommand(self),
-            ('save'): SaveCommand(self),
+            ('open',): OpenCommand(self),
+            ('save',): SaveCommand(self),
             ('exit', 'quit', 'restart', 'close'): CloseRestartCommand(self),
-            ('reload'): ReloadCommand(self),
-            ('new'): NewCommand(self),
-            ('shell'): ShellCommand(self),
-            ('config'): ConfigCommand(self),
-            ('eval'): EvalCommand(self),
-            ('split'): SplitCommand(self),
+            ('reload',): ReloadCommand(self),
+            ('new',): NewCommand(self),
+            ('shell',): ShellCommand(self),
+            ('config',): ConfigCommand(self),
+            ('eval',): EvalCommand(self),
+            ('split',): SplitCommand(self),
+            ('help', 'info'): HelpCommand(self),
         }
     
     def repeat_last_search(self):

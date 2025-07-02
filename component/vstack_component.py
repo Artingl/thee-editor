@@ -7,8 +7,12 @@ class VStackComponent(Component):
     def __init__(self, app, position):
         super().__init__(app, position)
         self.focused_component = None
+        self.mouse_focused_component = None
         self.current_focused_index = 0
         self.height_modifier = []
+
+    def get_mouse_focused_component(self):
+        return self.mouse_focused_component
 
     def add_child_component(self, component):
         if self.focused_component:
@@ -28,6 +32,17 @@ class VStackComponent(Component):
                 self.current_focused_index = 0
 
             self.focused_component = self.children[self.current_focused_index]
+            self.focused_component.is_focused = True
+
+    def focus(self, component):
+        if self.focused_component:
+            self.focused_component.is_focused = False
+        try:
+            self.current_focused_index = self.children.index(component)
+            self.focused_component = component
+            component.is_focused = True
+        except:
+            # Couldn't find the element
             self.focused_component.is_focused = True
 
     def focus_previous(self):
@@ -90,7 +105,7 @@ class VStackComponent(Component):
                 border_color = (255, 255, 255)
             pygame.draw.rect(self.surface, border_color, (*i.position, i.get_width(), i.get_height()), 1)
 
-    def get_focused_component(self):
+    def get_mouse_focused_component(self):
         return self.focused_component
 
     def key_down_event(self, key, unicode, modifier):
@@ -109,6 +124,21 @@ class VStackComponent(Component):
         if self.focused_component:
             self.focused_component.mouse_wheel_event(x, y)
 
+    def mouse_down_event(self, button, x, y):
+        for i in self.children:
+            component_x, component_y = x - i.position[0], y - i.position[1]
+            if i.get_width() >= component_x >= 0 and i.get_height() >= component_y >= 0:
+                i.mouse_down_event(button, component_x, component_y)
+                self.mouse_focused_component = i
+                self.focus(i)
+    
+    def mouse_motion_event(self, x, y):
+        for i in self.children:
+            component_x, component_y = x - i.position[0], y - i.position[1]
+            if i.get_width() >= component_x >= 0 and i.get_height() >= component_y >= 0:
+                i.mouse_motion_event(component_x, component_y)
+                self.mouse_focused_component = i
+    
     def update_dimensions(self, size, position):
         super().update_dimensions(size, position)
         self.update_stack()

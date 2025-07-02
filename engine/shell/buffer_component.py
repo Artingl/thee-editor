@@ -353,10 +353,9 @@ class BufferViewportComponent(Component):
         return super().mouse_wheel_event(x, y)
 
     def mouse_down_event(self, button, x, y):
-        # self.start_selection()
-
         # Set the caret position to current mouse's position
         if button == 1:
+            self.stop_selection()
             self.set_caret_mouse_relative(x, y)
             self.is_left_mouse_button_pressed = True
         return super().mouse_down_event(button, x, y)
@@ -364,13 +363,15 @@ class BufferViewportComponent(Component):
     def mouse_up_event(self, button, x, y):
         if button == 1:
             self.is_left_mouse_button_pressed = False
-        self.stop_selection()
         return super().mouse_down_event(button, x, y)
 
     def mouse_motion_event(self, x, y):
         # Set the caret position to current mouse's position
         if self.is_left_mouse_button_pressed:
             self.set_caret_mouse_relative(x, y)
+            if not self.selection:
+                self.start_selection()
+            self.set_selection_position(self.caret_position)
         return super().mouse_motion_event(x, y)
 
     def set_caret_mouse_relative(self, x, y):
@@ -388,6 +389,9 @@ class BufferViewportComponent(Component):
         self.caret_blink_animation_flag = True
         self.caret_blink_animation = 0
     
+    def get_cursor(self):
+        return pygame.SYSTEM_CURSOR_IBEAM
+
     def get_amount_of_lines_surf_height(self):
         font_size = self.application.get_font_driver().get_font_size()
         return round(self.surface.get_height() / (font_size[1] * self.text_scale))
